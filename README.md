@@ -472,13 +472,19 @@ dotnet build GungnirStaff/GungnirStaff.csproj -t:Package
 ```
 
 ```
-dist/GungnirStaff-1.0.0.zip
+dist/GungnirStaff-<version>.zip
 ├── manifest.json          # from Thunderstore/
 ├── icon.png               # art/Gungnir staff.png, renamed
 ├── README.md              # this file
+├── CHANGELOG.md           # rendered as its own tab on the package page
 └── plugins/
     └── GungnirStaff.dll   # Release
 ```
+
+`CHANGELOG.md` gets its own tab on Thunderstore and is shown by r2modman, so it is the
+one place a player reads before deciding whether to update. Write the release's entry
+before packaging: the target refuses to build without the file, and an entry missing
+when the version ships cannot be added to a package that is already published.
 
 The target builds Release through a nested MSBuild rather than depending on the normal
 `Build`, which forces two things it would be easy to get wrong by hand:

@@ -32,6 +32,7 @@
     <!-- Read straight out of the manifest, so the Package target can prove the two
          version numbers agree instead of trusting whoever bumped them. -->
     <ThunderstoreManifest>$(MSBuildThisFileDirectory)..\Thunderstore\manifest.json</ThunderstoreManifest>
+    <PackageChangelog>$(MSBuildThisFileDirectory)..\CHANGELOG.md</PackageChangelog>
     <ThunderstoreVersion Condition="Exists('$(ThunderstoreManifest)')">$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(ThunderstoreManifest)')), '"version_number"\s*:\s*"([^"]+)"').Groups[1].Value)</ThunderstoreVersion>
     <!-- ModVersion is the third place a version lives, and the one the multiplayer
          handshake actually compares between clients - so it is worth proving rather
@@ -199,6 +200,8 @@
            Text="Version mismatch: csproj is '$(Version)' but ModVersion in Plugin.cs is '$(PluginModVersion)'. That is the version the multiplayer handshake compares - bump all three together." />
     <Error Condition="!Exists('$(PackageIconSource)')"
            Text="Icon not found: $(PackageIconSource). Thunderstore requires a 256x256 icon.png." />
+    <Error Condition="!Exists('$(PackageChangelog)')"
+           Text="Changelog not found: $(PackageChangelog). Thunderstore renders CHANGELOG.md as its own tab, and a release with no entry is worse than no tab at all." />
 
     <MSBuild Projects="$(MSBuildProjectFullPath)" Targets="Build"
              Properties="Configuration=Release;Deploy=false">
@@ -218,6 +221,7 @@
 
     <Copy SourceFiles="$(ThunderstoreManifest)" DestinationFolder="$(PackageStageDir)" />
     <Copy SourceFiles="$(MSBuildThisFileDirectory)..\README.md" DestinationFolder="$(PackageStageDir)" />
+    <Copy SourceFiles="$(PackageChangelog)" DestinationFolder="$(PackageStageDir)" />
     <!-- Renamed on the way in: Thunderstore looks for exactly "icon.png". -->
     <Copy SourceFiles="$(PackageIconSource)" DestinationFiles="$(PackageStageDir)icon.png" />
     <Copy SourceFiles="@(_PackagedAssembly)" DestinationFolder="$(PackageStageDir)plugins" />
