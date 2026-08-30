@@ -18,11 +18,11 @@ namespace GungnirStaff.Patches
                 return;
             }
 
-            GungnirStaffPlugin.Log.LogInfo($"Local player '{__instance.GetPlayerName()}' spawned.");
-            Alive.Announce("spawned", GungnirStaffPlugin.Instance?.Harmony);
-
             StaffRegistry.Invalidate();
+            GungnirVisual.Preload();
             GungnirItem.Create();
+
+            GungnirItem.RepairInventory(__instance);
 
             var gungnir = GungnirItem.CarriedBy(__instance);
             if (gungnir != null)

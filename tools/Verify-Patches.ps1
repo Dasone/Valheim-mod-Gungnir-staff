@@ -12,8 +12,14 @@ $pars = New-Object Mono.Cecil.ReaderParameters
 $pars.AssemblyResolver = $rp
 
 # Index every type in the game assemblies (including nested).
+#
+# Keyed on the FULL name ("Piece/Requirement") as well as the short one, because
+# short names collide: Incinerator also has a nested Requirement, and whichever
+# one happened to be indexed first used to shadow the other - reporting a
+# perfectly valid patch target as NOT FOUND.
 $gameTypes = @{}
 function Index($t) {
+  $gameTypes[$t.FullName] = $t
   if (-not $gameTypes.ContainsKey($t.Name)) { $gameTypes[$t.Name] = $t }
   foreach ($n in $t.NestedTypes) { Index $n }
 }
@@ -35,7 +41,7 @@ foreach ($t in $mod.Types) {
   foreach ($ca in $t.CustomAttributes) {
     if ($ca.AttributeType.Name -ne "HarmonyPatch") { continue }
     foreach ($a in $ca.ConstructorArguments) {
-      if ($a.Type.Name -eq "Type") { $classType = $a.Value.Name }
+      if ($a.Type.Name -eq "Type") { $classType = $a.Value.FullName }
       elseif ($a.Type.Name -eq "String") { $classMethod = $a.Value }
     }
   }
@@ -57,7 +63,9 @@ foreach ($t in $mod.Types) {
     if ($me.Name -match "^(Prefix|Postfix|Transpiler|Finalizer)$") { $hasPatchAttr = $true }
     if (-not $hasPatchAttr -or -not $mName) { continue }
 
+    # Full name first ("Piece/Requirement"), short name as the fallback.
     $target = $gameTypes[$classType]
+    if (-not $target) { $target = $gameTypes[($classType -split "/")[-1]] }
     if (-not $target) {
       Write-Output "  FAIL  $($t.Name).$($me.Name) -> type '$classType' NOT FOUND"
       $fail++

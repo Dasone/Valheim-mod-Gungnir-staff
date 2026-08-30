@@ -33,7 +33,12 @@ namespace GungnirStaff
             {
                 { "StaffShield", "#FF0A2E" },       // Protection - vivid red
                 { "StaffRedTroll", "#FF2ECC" },     // Trollstav - magenta
-                { "StaffSkeleton", "#B44BFF" },     // Dead Raiser - necrotic violet
+                // Deep purple, not the lighter violet this replaced: the crystal is
+                // rendered emissive and its colour is multiplied past white, so a pale
+                // tint burns out to near-white and stops reading as a colour at all.
+                // Starting deep leaves room for that multiply and keeps it distinct from
+                // StaffLightning's blue-violet next door on the wheel.
+                { "StaffSkeleton", "#6A0DAD" },     // Dead Raiser - deep necrotic purple
                 { "StaffLightning", "#6A5BFF" },    // Lightning - blue-violet
                 { "StaffIceShards", "#00D4FF" },    // Frost - cyan
                 { "StaffGreenRoots", "#35FF00" },   // The Wild - green

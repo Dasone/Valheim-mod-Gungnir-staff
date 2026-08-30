@@ -8,7 +8,7 @@
     <RootNamespace>GungnirStaff</RootNamespace>
     <Product>Gungnir Staff</Product>
     <Description>A Valheim mod adding the Gungnir staff.</Description>
-    <Version>0.1.0</Version>
+    <Version>1.0.0</Version>
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
@@ -25,6 +25,14 @@
 
     <!-- MSB3277: Unity ships several assemblies at conflicting versions; harmless here. -->
     <NoWarn>$(NoWarn);MSB3277;CS0649;CS0169</NoWarn>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Packaging">
+    <PackageIconSource>$(MSBuildThisFileDirectory)..\art\Gungnir staff.png</PackageIconSource>
+    <!-- Read straight out of the manifest, so the Package target can prove the two
+         version numbers agree instead of trusting whoever bumped them. -->
+    <ThunderstoreManifest>$(MSBuildThisFileDirectory)..\Thunderstore\manifest.json</ThunderstoreManifest>
+    <ThunderstoreVersion Condition="Exists('$(ThunderstoreManifest)')">$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(ThunderstoreManifest)')), '"version_number"\s*:\s*"([^"]+)"').Groups[1].Value)</ThunderstoreVersion>
   </PropertyGroup>
 
   <ItemGroup Label="Build-time only">
@@ -127,6 +135,52 @@
     <Copy SourceFiles="$(TargetPath);@(_DebugSymbolsIntermediatePath)"
           DestinationFolder="$(ScriptsDeployDir)" SkipUnchangedFiles="false" ContinueOnError="true" />
     <Message Importance="high" Text="-&gt; Hot-reloaded $(AssemblyName).dll into $(ScriptsDeployDir) (ScriptEngine picks it up in ~1.5s)" />
+  </Target>
+
+  <!-- ==================================================================
+       Package
+       dotnet build GungnirStaff/GungnirStaff.csproj -t:Package
+       -> dist/GungnirStaff-<version>.zip, ready to upload to Thunderstore.
+
+       Builds Release through a nested MSBuild rather than depending on Build,
+       for two reasons. Configuration is forced, because Plugin.cs switches
+       NetworkCompatibility on it and a Debug package would ship with the
+       multiplayer handshake disabled - it would NOT require other players to
+       have the mod. And Deploy is forced off, because the ordinary build copies
+       into the live r2modman profile: packaging must never quietly swap the DLL
+       you are playing with for a different configuration.
+       ================================================================== -->
+  <Target Name="Package">
+    <Error Condition="'$(Version)' != '$(ThunderstoreVersion)'"
+           Text="Version mismatch: csproj is '$(Version)' but Thunderstore/manifest.json is '$(ThunderstoreVersion)'. Bump them together." />
+    <Error Condition="!Exists('$(PackageIconSource)')"
+           Text="Icon not found: $(PackageIconSource). Thunderstore requires a 256x256 icon.png." />
+
+    <MSBuild Projects="$(MSBuildProjectFullPath)" Targets="Build"
+             Properties="Configuration=Release;Deploy=false">
+      <Output TaskParameter="TargetOutputs" ItemName="_PackagedAssembly" />
+    </MSBuild>
+
+    <PropertyGroup>
+      <PackageStageDir>$(MSBuildThisFileDirectory)obj\package\</PackageStageDir>
+      <PackageDistDir>$(MSBuildThisFileDirectory)..\dist\</PackageDistDir>
+      <PackageZip>$(PackageDistDir)$(AssemblyName)-$(Version).zip</PackageZip>
+    </PropertyGroup>
+
+    <!-- Staged from scratch every time, so a renamed or deleted file cannot linger
+         in the zip from a previous run. -->
+    <RemoveDir Directories="$(PackageStageDir)" />
+    <MakeDir Directories="$(PackageStageDir);$(PackageStageDir)plugins;$(PackageDistDir)" />
+
+    <Copy SourceFiles="$(ThunderstoreManifest)" DestinationFolder="$(PackageStageDir)" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)..\README.md" DestinationFolder="$(PackageStageDir)" />
+    <!-- Renamed on the way in: Thunderstore looks for exactly "icon.png". -->
+    <Copy SourceFiles="$(PackageIconSource)" DestinationFiles="$(PackageStageDir)icon.png" />
+    <Copy SourceFiles="@(_PackagedAssembly)" DestinationFolder="$(PackageStageDir)plugins" />
+
+    <Delete Files="$(PackageZip)" />
+    <ZipDirectory SourceDirectory="$(PackageStageDir)" DestinationFile="$(PackageZip)" />
+    <Message Importance="high" Text="-&gt; Packaged $(PackageZip)" />
   </Target>
 
 </Project>

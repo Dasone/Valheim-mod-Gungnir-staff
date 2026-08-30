@@ -65,8 +65,12 @@ namespace GungnirStaff
                        || item.m_dropPrefab.name == PrefabName;
             }
 
-            // Fallback for items built by hand before m_dropPrefab is assigned.
-            return item.m_customData != null && item.m_customData.ContainsKey(StaffContainer.InventoryKey);
+            // Fallbacks for an item whose drop prefab has not been filled in yet: the
+            // name token is authored by us and unique, and custom data catches anything
+            // that has already stored a rack.
+            return (item.m_shared != null && item.m_shared.m_name == NameToken)
+                   || (item.m_customData != null
+                       && item.m_customData.ContainsKey(StaffContainer.InventoryKey));
         }
 
         /// <summary>
@@ -87,12 +91,37 @@ namespace GungnirStaff
             if (existing != null)
             {
                 Prefab = existing;
-                BaseShared = existing.GetComponent<ItemDrop>()?.m_itemData?.m_shared;
+                if (existing.name != PrefabName)
+                {
+                    existing.name = PrefabName;
+                }
+
+                var existingDrop = existing.GetComponent<ItemDrop>();
+                BaseShared = existingDrop?.m_itemData?.m_shared;
+
+                // Set unconditionally: it may already point at an orphan copy from an
+                // earlier registration, which is just as broken as being null.
+                if (existingDrop?.m_itemData != null)
+                {
+                    existingDrop.m_itemData.m_dropPrefab = existing;
+                }
 
                 // Re-applied on every load so stat edits land on a hot reload instead of
                 // needing a restart. Existing Gungnirs share this SharedData instance, so
                 // the ones already in inventories update too.
                 ApplyIdentity(BaseShared, db);
+                if (ModConfig.StandalonePrefab.Value)
+                {
+                    ApplyGameShader(existing, db);
+                }
+
+                // Re-registered on EVERY load, not just when the prefab is first built.
+                // ObjectDB and our prefab survive a world change, but ZNetScene does not -
+                // it is rebuilt with an empty m_namedPrefabs. A dropped Gungnir asks that
+                // table for its own prefab hash, so without this the item would drop fine
+                // in the first world of a session and vanish in every one after it.
+                RegisterWithZNetScene(existing);
+
                 GungnirVisual.Apply(existing);
                 GungnirRecipe.Register();
                 ModConfig.Trace("Gungnir prefab already registered; refreshed its stats.");
@@ -139,8 +168,8 @@ namespace GungnirStaff
                 BaseShared = shared;
                 GungnirVisual.Apply(custom.ItemPrefab);
                 GungnirRecipe.Register();
-                GungnirStaffPlugin.Log.LogMessage(
-                    $"Created placeholder Gungnir prefab (cloned from {basePrefab.name}).");
+                GungnirStaffPlugin.Log.LogInfo(
+                    $"Created the Gungnir prefab (cloned from {basePrefab.name}).");
                 return true;
             }
             catch (System.Exception ex)
@@ -167,42 +196,95 @@ namespace GungnirStaff
             Prefab = prefab;
             BaseShared = drop.m_itemData.m_shared;
 
-            // Its materials came from the editor's Standard shader, which the game does
-            // not ship. With no donor to borrow from, take one off any vanilla item.
-            var shader = GungnirStandalone.FindGameShader(db);
-            if (shader != null)
-            {
-                foreach (var r in prefab.GetComponentsInChildren<Renderer>(true))
-                {
-                    foreach (var m in r.materials)
-                    {
-                        if (m == null || m.shader == shader)
-                        {
-                            continue;
-                        }
-
-                        var colour = m.HasProperty("_Color") ? m.GetColor("_Color") : Color.white;
-                        m.shader = shader;
-                        if (m.HasProperty("_Color"))
-                        {
-                            m.SetColor("_Color", colour);
-                        }
-                    }
-                }
-            }
-            else
-            {
-                GungnirStaffPlugin.Log.LogWarning(
-                    "No vanilla shader found; the standalone model may render untextured.");
-            }
+            ApplyGameShader(prefab, db);
 
             ItemManager.Instance.RegisterItemInObjectDB(prefab);
             RegisterWithZNetScene(prefab);
+
+            // Re-read the prefab from ObjectDB rather than trusting the object we handed
+            // it. Registration can store a copy, and Unity deep-copies serialized data on
+            // Instantiate - so the object players actually get items from may not be the
+            // one we built, leaving our cached Prefab/BaseShared pointing at an orphan.
+            // That mismatch is what made m_dropPrefab come out null on real items.
+            var registered = db.GetItemPrefab(PrefabName);
+
+            // Registration can store an Instantiate()d copy, and Unity appends "(Clone)"
+            // to the name. VisEquipment resolves the held model by that name every frame,
+            // so a "(Clone)" suffix means the lookup fails, the instance is destroyed and
+            // rebuilt continuously - two copies of the mesh alternating with one, which is
+            // the flicker. It also explains the null m_dropPrefab and the mismatched
+            // SharedData: they were on an object under a name nothing could resolve.
+            if (registered != null && registered.name != PrefabName)
+            {
+                GungnirStaffPlugin.Log.LogWarning(
+                    $"Registered prefab was named '{registered.name}'; renaming to "
+                    + $"'{PrefabName}' so the game can resolve it.");
+                registered.name = PrefabName;
+            }
+
+            var registeredDrop = registered != null ? registered.GetComponent<ItemDrop>() : null;
+            if (registeredDrop?.m_itemData != null)
+            {
+                Prefab = registered;
+                BaseShared = registeredDrop.m_itemData.m_shared;
+
+                // Vanilla fills this in ItemDrop.Awake, which never runs on an inactive
+                // prefab. Every item cloned from here inherits it, so setting it once here
+                // is what stops it being null on every Gungnir in the game.
+                registeredDrop.m_itemData.m_dropPrefab = registered;
+            }
+
             GungnirRecipe.Register();
 
-            GungnirStaffPlugin.Log.LogMessage(
+            GungnirStaffPlugin.Log.LogInfo(
                 "Created the standalone Gungnir prefab - no vanilla weapon behind it.");
             return true;
+        }
+
+
+        /// <summary>
+        ///     Re-points the standalone model's materials at a shader the game ships.
+        ///
+        ///     Called on every load, not just when the prefab is first built: a hot reload
+        ///     takes the "already registered" path, so a shader fix applied only at build
+        ///     time would need a restart to take effect.
+        /// </summary>
+        private static void ApplyGameShader(GameObject prefab, ObjectDB db)
+        {
+            var shader = GungnirStandalone.FindGameShader(db);
+            if (shader == null)
+            {
+                GungnirStaffPlugin.Log.LogWarning(
+                    "No vanilla shader found; the standalone model may render untextured.");
+                return;
+            }
+
+            var changed = 0;
+            foreach (var r in prefab.GetComponentsInChildren<Renderer>(true))
+            {
+                foreach (var m in r.materials)
+                {
+                    if (m == null || m.shader == shader)
+                    {
+                        continue;
+                    }
+
+                    var colour = m.HasProperty("_Color") ? m.GetColor("_Color") : Color.white;
+                    m.shader = shader;
+                    if (m.HasProperty("_Color"))
+                    {
+                        m.SetColor("_Color", colour);
+                    }
+
+                    changed++;
+                }
+            }
+
+            if (changed > 0)
+            {
+                ModConfig.Trace(
+                    $"Standalone shader set to '{shader.name}' on {changed} material(s).");
+            }
         }
 
         /// <summary>
@@ -217,6 +299,20 @@ namespace GungnirStaff
         {
             if (target == null)
             {
+                return;
+            }
+
+            // Never re-impose the donor on a standalone item: its stats are authored,
+            // and copying a spear over them would quietly undo that on every reload.
+            if (ModConfig.StandalonePrefab.Value)
+            {
+                ApplyGungnirIdentity(target);
+
+                // Re-applied on every load, not just at build time: a Gungnir registered
+                // by an older build has empty effect lists and would stay silent until
+                // the player started a fresh world. This repairs it on a hot reload.
+                GungnirStandalone.BorrowEffects(target, db);
+
                 return;
             }
 
@@ -267,8 +363,7 @@ namespace GungnirStaff
                 target.m_secondaryAttack.m_damageMultiplier = SecondaryPierce / PrimaryPierce;
             }
 
-            DumpDonorBlueprint(target);
-            Blueprint.DumpVanillaItem(PickBaseWeapon(db)?.name ?? "SpearBronze");
+            ApplyGungnirIdentity(target);
 
             // Upgrade damage is left flat for now: the levels buy rack slots, not
             // numbers, until per-level damage is specified.
@@ -277,43 +372,58 @@ namespace GungnirStaff
 
 
         /// <summary>
-        ///     Logs the values the donor spear supplies, so an equivalent prefab can be
-        ///     authored from scratch without guessing at a hundred-odd SharedData fields.
-        ///     Trace-level; only interesting while building the standalone item.
+        ///     The parts that are Gungnir's own, applied on top of whatever the base is.
+        ///     Shared by the clone and standalone paths.
         /// </summary>
-        private static void DumpDonorBlueprint(ItemDrop.ItemData.SharedData shared)
+        private static void ApplyGungnirIdentity(ItemDrop.ItemData.SharedData target)
         {
-            if (shared == null || !ModConfig.VerboseLogging.Value)
+            var icon = GungnirVisual.Icon;
+            if (icon != null)
+            {
+                target.m_icons = new[] { icon };
+            }
+
+            target.m_name = NameToken;
+            target.m_description = DescToken;
+            target.m_maxStackSize = 1;
+            target.m_maxQuality = GungnirRecipe.MaxQuality;
+            target.m_useDurability = false;
+            target.m_dlc = string.Empty;
+            target.m_damages.m_pierce = PrimaryPierce;
+
+            if (target.m_secondaryAttack != null)
+            {
+                target.m_secondaryAttack.m_damageMultiplier = SecondaryPierce / PrimaryPierce;
+            }
+        }
+
+
+        /// <summary>
+        ///     Restores m_dropPrefab if it is missing.
+        ///
+        ///     Humanoid.SetupVisEquipment reads m_dropPrefab.name with no null check, so a
+        ///     missing one is an instant NullReferenceException the moment the item is
+        ///     equipped or sheathed. Vanilla fills it in ItemDrop.Awake, which never runs
+        ///     on an inactive runtime prefab - so items built from one can reach the player
+        ///     without it. Cheap to check and it keeps the invariant the game assumes.
+        /// </summary>
+        internal static void RepairDropPrefab(ItemDrop.ItemData item)
+        {
+            if (item == null || item.m_dropPrefab != null || Prefab == null)
             {
                 return;
             }
 
-            var a = shared.m_attack;
-            var s2 = shared.m_secondaryAttack;
-            GungnirStaffPlugin.Log.LogInfo(
-                "BLUEPRINT itemType=" + shared.m_itemType
-                + " skill=" + shared.m_skillType
-                + " anim=" + shared.m_animationState
-                + " toolTier=" + shared.m_toolTier
-                + " blockPower=" + shared.m_blockPower
-                + " deflection=" + shared.m_deflectionForce
-                + " attackForce=" + shared.m_attackForce
-                + " eitrRegen=" + shared.m_eitrRegenModifier
-                + " staminaMod=" + shared.m_attackStaminaModifier
-                + " dmg(blunt/slash/pierce)=" + shared.m_damages.m_blunt + "/"
-                + shared.m_damages.m_slash + "/" + shared.m_damages.m_pierce
-                + " | primary: type=" + (a != null ? a.m_attackType.ToString() : "-")
-                + " anim=" + (a != null ? a.m_attackAnimation : "-")
-                + " stamina=" + (a != null ? a.m_attackStamina.ToString() : "-")
-                + " eitr=" + (a != null ? a.m_attackEitr.ToString() : "-")
-                + " range=" + (a != null ? a.m_attackRange.ToString() : "-")
-                + " | secondary: type=" + (s2 != null ? s2.m_attackType.ToString() : "-")
-                + " anim=" + (s2 != null ? s2.m_attackAnimation : "-")
-                + " mult=" + (s2 != null ? s2.m_damageMultiplier.ToString() : "-"));
+            if (item.m_customData != null
+                && item.m_customData.ContainsKey(StaffContainer.InventoryKey))
+            {
+                item.m_dropPrefab = Prefab;
+                ModConfig.Trace("Restored a missing m_dropPrefab on a Gungnir.");
+            }
         }
 
         /// <summary>Field-by-field copy. Used for plain serialized classes only.</summary>
-        private static void CopyFields<T>(T from, T to) where T : class
+        internal static void CopyFields<T>(T from, T to) where T : class
         {
             const System.Reflection.BindingFlags flags =
                 System.Reflection.BindingFlags.Instance
@@ -347,7 +457,7 @@ namespace GungnirStaff
         ///     The spear Gungnir is built from. Falls back to any spear in ObjectDB if
         ///     none of the known names resolve.
         /// </summary>
-        private static GameObject PickBaseWeapon(ObjectDB db)
+        internal static GameObject PickBaseWeapon(ObjectDB db)
         {
             // Configured choice first, so the model can be A/B'd from F1 without a rebuild.
             var configured = ModConfig.BaseWeapon?.Value;
@@ -399,6 +509,50 @@ namespace GungnirStaff
 
             scene.m_prefabs.Add(prefab);
             scene.m_namedPrefabs[hash] = prefab;
+        }
+
+        /// <summary>
+        ///     Repairs every Gungnir already carried.
+        ///
+        ///     Items handed out before the registration fix still have a null
+        ///     m_dropPrefab, and that field is what Inventory.Save writes to identify an
+        ///     item - so without this they would quietly vanish on relog rather than
+        ///     merely look wrong.
+        /// </summary>
+        internal static void RepairInventory(Player player)
+        {
+            var inv = player?.m_inventory;
+            if (inv == null || Prefab == null)
+            {
+                return;
+            }
+
+            var repaired = 0;
+            foreach (var item in inv.GetAllItems())
+            {
+                if (item.m_dropPrefab != null)
+                {
+                    continue;
+                }
+
+                var isOurs = (item.m_shared != null && item.m_shared.m_name == NameToken)
+                             || (item.m_customData != null
+                                 && item.m_customData.ContainsKey(StaffContainer.InventoryKey));
+                if (!isOurs)
+                {
+                    continue;
+                }
+
+                item.m_dropPrefab = Prefab;
+                repaired++;
+            }
+
+            if (repaired > 0)
+            {
+                GungnirStaffPlugin.Log.LogInfo(
+                    $"Repaired {repaired} Gungnir(s) that had no drop prefab - they would "
+                    + "not have survived a relog.");
+            }
         }
 
         /// <summary>Finds the Gungnir the player is holding, or null.</summary>

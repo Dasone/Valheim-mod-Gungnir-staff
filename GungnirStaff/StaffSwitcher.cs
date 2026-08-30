@@ -36,6 +36,13 @@ namespace GungnirStaff
             }
 
             SyncActiveDurability(gungnir);
+
+            // Before the slot changes, while the item is still showing its own level.
+            if (container.SelectedSlot < 0)
+            {
+                container.RememberOwnLevel();
+            }
+
             container.SelectedSlot = slot;
             Project(player, gungnir, staff);
 
@@ -73,6 +80,14 @@ namespace GungnirStaff
 
             var slot = container.SelectedSlot;
             var staff = slot >= 0 ? container.ItemAt(slot) : null;
+
+            // Nothing projected, so the level on the item is Gungnir's own. This is the
+            // hook that catches an upgrade: the Galdr Table hands back a brand new item
+            // at the new level, and this is where that level is learnt.
+            if (slot < 0)
+            {
+                container.RememberOwnLevel();
+            }
 
             if (slot >= 0 && staff == null)
             {
@@ -128,7 +143,10 @@ namespace GungnirStaff
 
             if (staff?.m_shared != null)
             {
-                gungnir.m_shared = staff.m_shared;
+                // Normalised, not raw: some staffs carry their own hold pose, and a
+                // Gungnir impersonating one would be carried like whatever that staff is
+                // shaped like rather than like a staff.
+                gungnir.m_shared = StaffStance.Normalise(staff.m_shared);
                 gungnir.m_quality = staff.m_quality;
                 gungnir.m_variant = staff.m_variant;
                 gungnir.m_durability = staff.m_durability;
@@ -137,8 +155,14 @@ namespace GungnirStaff
             else if (GungnirItem.BaseShared != null)
             {
                 gungnir.m_shared = GungnirItem.BaseShared;
-                gungnir.m_quality = 1;
-                gungnir.m_variant = 0;
+
+                // Gungnir's OWN level, not 1. Hard-coding 1 here quietly undid every
+                // upgrade: the Galdr Table replaces the item with a new one at the next
+                // level, this ran the moment it was picked up, and the level went
+                // straight back to 1 with the materials already spent.
+                var container = StaffContainer.For(gungnir);
+                gungnir.m_quality = container?.OwnQuality ?? System.Math.Max(1, gungnir.m_quality);
+                gungnir.m_variant = container?.OwnVariant ?? 0;
             }
 
             if (wasEquipped)

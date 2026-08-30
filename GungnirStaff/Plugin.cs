@@ -11,7 +11,14 @@ namespace GungnirStaff
     /// </summary>
     [BepInPlugin(ModGuid, ModName, ModVersion)]
     [BepInDependency(Jotunn.Main.ModGuid)]
+    // BOTH executables. valheim.exe alone was a multiplayer bug, not a filter: the
+    // release build declares EveryoneMustHaveMod, which means the SERVER has to have it
+    // too - and a dedicated server runs valheim_server.exe, where this attribute stopped
+    // the plugin from loading at all. Jotunn would then find the mod missing on the
+    // server's side of the handshake and refuse the connection, so every player who
+    // installed it would be locked out of dedicated servers.
     [BepInProcess("valheim.exe")]
+    [BepInProcess("valheim_server.exe")]
 #if DEBUG
     // Debug builds stay off the network handshake entirely, so you can join your
     // own server (and anyone else's) while the mod is half-finished.
@@ -23,9 +30,9 @@ namespace GungnirStaff
 #endif
     internal sealed class GungnirStaffPlugin : BaseUnityPlugin
     {
-        public const string ModGuid = "com.samuelhaggren.gungnirstaff";
+        public const string ModGuid = "dev.samspel.gungnirstaff";
         public const string ModName = "Gungnir Staff";
-        public const string ModVersion = "0.1.0";
+        public const string ModVersion = "1.0.0";
 
         internal static GungnirStaffPlugin Instance;
 
@@ -47,7 +54,7 @@ namespace GungnirStaff
 
             ModConfig.Bind(Config);
             CrystalColors.Bind(Config);
-            ModConfig.OnLayoutChanged += GungnirBar.Teardown;
+            ModConfig.OnLayoutChanged += GungnirBar.OnLayoutSettingChanged;
 
             // Patch everything in this assembly annotated with [HarmonyPatch].
             _harmony = new Harmony(ModGuid);
@@ -70,15 +77,29 @@ namespace GungnirStaff
 
             // On a hot reload the world is already up, so the prefab and any carried
             // Gungnir can be brought back immediately instead of waiting for a spawn.
+            // Decompress the bundle up front: doing it lazily froze the game for seconds
+            // the first time a Gungnir appeared.
+            LightningStrike.Reset();
+
+            // A dedicated server has no renderer and never draws the model, so there is
+            // nothing for the bundle to be decompressed into. It still needs the plugin
+            // loaded - that is what satisfies EveryoneMustHaveMod - just not the art.
+            if (!Jotunn.Managers.GUIManager.IsHeadless())
+            {
+                GungnirVisual.Preload();
+            }
+
             if (Alive.InGame)
             {
                 StaffRegistry.Invalidate();
                 GungnirItem.Create();
+                GungnirItem.RepairInventory(Player.m_localPlayer);
             }
 
-            Alive.Announce(Alive.InGame ? "reloaded" : "loaded", _harmony);
-            Log.LogInfo($"Press {ModConfig.StatusKey.Value} for a status line, "
-                        + "or type 'gungnir' in the F5 console.");
+            // One quiet line in the BepInEx log, and nothing on the player's screen.
+            // The full announce - console and HUD as well - is reserved for when the
+            // status key or the 'gungnir' command is used deliberately.
+            Log.LogInfo(Alive.StatusLine(_harmony));
         }
 
         private void Update()
@@ -168,12 +189,13 @@ namespace GungnirStaff
         /// </summary>
         private void OnDestroy()
         {
-            ModConfig.OnLayoutChanged -= GungnirBar.Teardown;
+            ModConfig.OnLayoutChanged -= GungnirBar.OnLayoutSettingChanged;
             GungnirBar.Teardown();
             CrystalGlow.Clear();
+            BladeGlow.Clear();
             _harmony?.UnpatchSelf();
             _harmony = null;
-            Log?.LogMessage($"{ModName} unloaded.");
+            ModConfig.Trace($"{ModName} unloaded.");
         }
     }
 }

@@ -1,8 +1,8 @@
 {
   "name": "GungnirStaff",
-  "version_number": "0.1.0",
-  "website_url": "",
-  "description": "A Valheim mod adding the Gungnir staff.",
+  "version_number": "1.0.0",
+  "website_url": "https://github.com/Dasone/Valheim-mod-Gungnir-staff",
+  "description": "Odin's spear, craftable at the Galdr Table. Carries your magic staffs inside itself and becomes whichever one you select.",
   "dependencies": [
     "denikson-BepInExPack_Valheim-5.4.2333",
     "ValheimModding-Jotunn-2.29.2"

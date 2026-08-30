@@ -6,6 +6,8 @@ carries other magic staffs inside itself and *becomes* whichever one you select.
 Built on **BepInEx 5.4.23.3** + **Jötunn 2.29.2**, targeting `net462` (the framework
 Jötunn and Valheim's Unity Mono runtime use).
 
+Source: <https://github.com/Dasone/Valheim-mod-Gungnir-staff>
+
 ---
 
 ## What the mod does
@@ -18,8 +20,9 @@ applied on top.
 Its own trick is the **staff rack**: a one-row inventory that lives inside the item.
 Drop a magic staff into the rack, select the slot, and Gungnir turns into that staff
 — its attack, eitr cost, projectile, skill XP, icon and held model all become the
-staff's. Holster, and it is a spear again. Each upgrade level adds two rack slots
-(2 → 4 → 6 → 8), so the item's quality is what governs how many staffs it carries.
+staff's. Holster, and it is a spear again. A new Gungnir has four rack slots and each
+upgrade adds two (4 → 6 → 8), so the item's quality is what governs how many staffs it
+carries.
 
 The crystal in the butt of the spear is colour-coded per staff, with a matching light
 and a shoal of motes around it, so you can see which staff is loaded at a glance.
@@ -67,14 +70,18 @@ Thunderstore/manifest.json     # packaging metadata
 
 Made at the **Galdr Table, level 2** — an upgraded table, unlike the basic staffs.
 
-| Material | Craft | Lv 2 | Lv 3 | Lv 4 |
-| --- | --- | --- | --- | --- |
-| Yggdrasil wood | 30 | 15 | 25 | 35 |
-| Refined eitr | 30 | 20 | 30 | 40 |
-| Thunder stone | 3 | 2 | 4 | 6 |
-| Black core | 2 | 1 | 2 | 3 |
-| Gjall trophy | 1 | — | — | — |
-| **Rack slots** | **2** | **4** | **6** | **8** |
+| Material | Craft | Lv 2 | Lv 3 |
+| --- | --- | --- | --- |
+| Yggdrasil wood | 30 | 15 | 25 |
+| Refined eitr | 30 | 20 | 30 |
+| Thunder stone | 3 | 2 | 4 |
+| Black core | 2 | 1 | 2 |
+| Gjall trophy | 1 | — | — |
+| **Rack slots** | **4** | **6** | **8** |
+
+Three levels rather than four, because the levels exist to buy rack slots and the rack
+is full at level 3. The 8-slot ceiling is itself pinned by the `Alt`+`1`…`Alt`+`8`
+shortcuts, so a fourth upgrade could only have cost materials and granted nothing.
 
 Black cores gate it behind actually delving the Infested Mines rather than gathering
 on the surface; the Gjall trophy is a mid-Mistlands gate rather than a "finished the
@@ -103,7 +110,7 @@ Defaults — every binding is rebindable in Configuration Manager (F1).
 | Right-click a rack slot | Wield that staff |
 | Left-click a rack slot | Pick up / drag, exactly like any inventory |
 | `Ctrl` + left-click a staff in your inventory | Quick-move it into the rack |
-| `F9` | Print the "still alive" status line |
+| Middle-drag a rack slot (inventory open) | Move the bar to a new place on screen |
 
 **Alt, not Ctrl**, because Ctrl is Valheim's crouch — `Ctrl+3` also made the character
 sneak. Alt is free: vanilla's inventory only reads Shift (split) and Ctrl (quick-move)
@@ -119,14 +126,14 @@ what makes Ctrl+click into the rack work.
 
 ## Configuration
 
-Everything lands in `BepInEx/config/com.samuelhaggren.gungnirstaff.cfg` and is
+Everything lands in `BepInEx/config/dev.samspel.gungnirstaff.cfg` and is
 live-editable in Configuration Manager (F1) under **Gungnir Staff**.
 
 | Section | What's in it |
 | --- | --- |
 | `General` | `Enabled` master switch, `VerboseLogging` |
-| `Staff bar` | `SlotCount` (0 = follow upgrade level), `Activation` (Equipped / Carried), `Visibility` (WhenGungnirActive / InventoryOnly / Always), `PositionX`, `PositionY`, `Scale` |
-| `Appearance` | `StandalonePrefab`, `BaseWeaponPrefab`, model offset / scale / grip height, spear and staff stance rotations, back-slot placement, crystal particle mode / rate / scale / brightness, weapon glow effect |
+| `Staff bar` | `SlotCount` (0 = follow upgrade level), `Activation` (Carried / Equipped), `Visibility` (WhenGungnirActive / InventoryOnly / Always), `PositionX`, `PositionY`, `Scale`, `MoveBarMouseButton`, `ShowSlotKeys`, `SlotKeyScale` |
+| `Appearance` | `StandalonePrefab`, `BaseWeaponPrefab`, `NormaliseStaffStance`, model offset / scale / grip height, spear and staff stance rotations, back-slot placement, crystal particle mode / rate / scale / brightness, weapon glow effect |
 | Crystal colours | One colour per staff, bound lazily from ObjectDB |
 | `Keys` | `StatusKey`, `HolsterStaff`, `SelectSlot1`…`SelectSlot8` |
 
@@ -139,16 +146,34 @@ round-trips cleanly through the config file.
 `BaseWeaponPrefab` takes effect on the next game start: the held model comes from the
 prefab, which is registered once at load.
 
+`NormaliseStaffStance` keeps Gungnir held the same way whichever staff is selected.
+Projecting a staff brings its `m_animationState` along, and not every magic item is
+staff-shaped — the Dead Raiser is a skull and vanilla poses the character to match, so
+a Gungnir impersonating it was carried like a skull. The wanted stance is *measured*
+from the staffs actually installed (the majority wins, falling back to `Staves`) rather
+than hard-coded, so a modded staff set still moves the odd one out rather than the
+group. Only `m_animationState` is overridden, on a private copy of the SharedData, and
+the whole game reads that field in exactly two places — `Humanoid.SetupAnimationState`
+for the pose and `KeyHints.UpdateHints` for the hints. Nothing about damage, casting,
+eitr or which hand the item goes in is affected.
+
 ### Two ways to build the prefab
 
-By default Gungnir is a runtime clone of a vanilla spear, which hands you working
-attacks, animations, colliders and a hundred-odd `SharedData` fields for free.
-`StandalonePrefab = true` switches to `GungnirStandalone.cs`, which authors all of
-that explicitly instead — from values measured off a real spear rather than guessed
-at — so the item depends on no vanilla weapon at all. The attack animations are not a
-dependency either way: `spear_poke` is a state in the player's own animator, so
-naming it costs nothing. If the standalone build does not complete, the mod falls back
-to the clone and says so in the log.
+By default (`StandalonePrefab = true`) Gungnir is built from nothing by
+`GungnirStandalone.cs`, which authors every stat explicitly — from values measured off
+a real spear rather than guessed at — so the item depends on no vanilla weapon at all.
+
+`StandalonePrefab = false` switches back to the original path: a runtime clone of a
+vanilla spear, which hands you working attacks, animations, colliders and a hundred-odd
+`SharedData` fields for free. It remains as a fallback in both senses — set it
+deliberately, or the mod drops to it automatically and says so in the log if a
+standalone build ever fails to complete.
+
+The attack animations are not a dependency either way: `spear_poke` is a state in the
+player's own animator, so naming it costs nothing.
+
+Either path takes effect on the next game start, since the prefab is registered once
+at load.
 
 ---
 
@@ -164,12 +189,54 @@ equipped, with no per-staff code. The item still saves and reloads as a Gungnir
 because `Inventory.Save` writes `m_dropPrefab.name`, which never changes.
 
 Storage lives in the item's own `m_customData` dictionary, which vanilla round-trips
-for us. The stored staffs survive relogs, follow the item into a chest, and need no
-save file of our own.
+for us. The stored staffs survive relogs, follow the item into a chest, are written to
+the ZDO when the item is dropped, and need no save file of our own.
+
+**Upgrading replaces the item.** `InventoryGui.DoCrafting` does not raise the level of
+the weapon you hand it — it unequips it, removes it from the inventory, and adds a
+brand new one built from the recipe prefab at the next level, carrying over only the
+grid position and variant. The rack lives in `m_customData`, which the replacement does
+not have, so an upgrade used to eat every stored staff. `CraftingUpgradePatch` copies
+that data onto the replacement, holstering first so vanilla reads Gungnir's own level
+rather than the projected staff's.
+
+Gungnir's own level is also kept in custom data (`gungnir.q`), because projecting a
+staff overwrites `m_quality` with that staff's level. It is not a cosmetic number: it
+decides the rack width and it is what an upgrade increments.
+
+**The trade-off: the staffs share the Gungnir's fate.** They are part of the item, not
+a separate container, so anything that destroys the Gungnir destroys them with it — and
+uninstalling the mod takes the whole item, staffs included, because the prefab no longer
+exists to load. Run `gungnir empty` to move them into your own inventory *before*
+uninstalling. There is no way for the mod to rescue them afterwards; by then it is not
+running.
 
 What counts as a staff is detected from ObjectDB **by skill type**, not from a name
 list — so the vanilla staffs are found automatically however many there are, and so
 are staffs added by other mods, with no changes here.
+
+The bar can be dragged to a new place with the middle mouse button while the inventory
+is open — that is the only time the cursor is free, and dragging with it captured by the
+camera would fling the bar around as the player looks. The drag reads the cursor through
+`RectTransformUtility.ScreenPointToLocalPointInRectangle` into the bar's parent space
+rather than working in raw pixels, so it tracks correctly at any UI scale or resolution,
+and it uses the delta between two points in that space, which is what makes it immune to
+the parent's local origin differing from the bar's own anchored one. The result is
+written back to `PositionX`/`PositionY` on release, so a dragged position survives a
+relog and is still editable from F1. `MoveBarMouseButton = -1` turns it off.
+
+Starting a drag hit-tests the actual slot rectangles, not the bar's own. The bar is a
+clone of the player's 8×4 grid, so its rectangle is several rows taller than the one
+visible row — generous is right for catching a dropped item, and wrong for starting a
+drag, where it would let a middle-click in empty space above the bar pick it up.
+
+Each slot is labelled underneath with its shortcut — `Alt+1`, `Alt+2` and so on. The
+text is read from the live `KeyboardShortcut`, so rebinding a slot in F1 relabels it and
+the label can never drift out of step with the key that actually works. The label is
+cloned from the slot's own stack-count text, which brings Valheim's font, outline and
+material with it, and its size is derived from the slot's height rather than a fixed
+number — so it tracks `Scale` and any UI scale the game is running at. `SlotKeyScale`
+nudges it relative to that.
 
 The bar is a clone of vanilla's player `InventoryGrid`, so it inherits Valheim's slot
 art, tooltips, durability bars, gamepad handling and drag visuals — and vanilla's
@@ -270,28 +337,31 @@ patches, UI, crystal effects and config changes reload fine.
 
 ## Is the mod alive?
 
-`Alive.Announce()` writes the same status line to three places at once — the BepInEx
-console window, Valheim's in-game console (F5), and the centre of the screen:
+`Alive.StatusLine()` says exactly which build is running:
 
 ```
-[reloaded] Gungnir Staff v0.1.0 | Debug build 2026-08-29 14:10:57 | 1 patched method(s)
+Gungnir Staff v0.1.0 | Debug build 2026-08-29 14:10:57 | 8 patched method(s)
 ```
+
+`Alive.Announce()` puts that line in three places at once — the BepInEx console window,
+Valheim's in-game console (F5), and the centre of the screen.
 
 The build timestamp is baked in at compile time by the `GenerateBuildInfo` MSBuild
 target, so after a hot reload you can tell at a glance whether the new DLL actually
 took, rather than guessing.
 
-It fires on four occasions:
+It is deliberately quiet. A released mod should not announce itself on the player's
+screen, so the line is only shown when it is asked for:
 
-| When | Tag | Notes |
+| When | Where | Notes |
 | --- | --- | --- |
-| Game start | `loaded` | console + log only; no HUD exists yet |
-| ScriptEngine reload | `reloaded` | detected by a world already running |
-| Local player spawns | `spawned` | from the Harmony postfix on `Player.OnSpawned` |
-| **F9** | `alive` | on demand — configurable as `Keys/StatusKey` |
+| Game start / ScriptEngine reload | BepInEx log only | one `LogInfo` line, no HUD, no game console |
+| `gungnir` in the F5 console | log + console | also prints damage, rack and hit-feedback state |
+| `Keys/StatusKey` | log + console + HUD | **unbound by default** — bind a key to use it |
 
-F9 works even with `Enabled = false` and even with a menu open — it's a diagnostic,
-not gameplay.
+The status key is not bound out of the box: it is a diagnostic, and a released mod has
+no business claiming a key on everyone's keyboard for one. Bound, it works even with
+`Enabled = false` and even with a menu open.
 
 The BepInEx console window is already switched on in this profile
 (`BepInEx.cfg` → `[Logging.Console] Enabled = true`).
@@ -305,6 +375,34 @@ Set per build configuration in `Plugin.cs`, so you never have to remember to fli
 | **Debug** | `NotEnforced` / `None` | join any server, including your own, mid-development |
 | **Release** | `EveryoneMustHaveMod` / `Minor` | what you ship |
 
+`EveryoneMustHaveMod` means exactly that — the **server** needs it too, not just the
+clients. That makes the `[BepInProcess]` attributes part of the multiplayer contract:
+the plugin declares both `valheim.exe` and `valheim_server.exe`, because a dedicated
+server runs the latter and the attribute is a hard filter on which process BepInEx will
+load the plugin into. With only `valheim.exe` declared, a dedicated server could have
+the files installed and still never load them, Jötunn would find the mod missing on the
+server's side of the handshake, and every player who installed it would be locked out.
+
+`VersionStrictness.Minor` compares major and minor, so `1.0.0` and `1.0.1` can play
+together but `1.1.0` cannot. The version compared is `ModVersion` in `Plugin.cs`.
+
+The mod is otherwise well behaved headless. `Update` returns immediately with no local
+player, so none of the UI, model or crystal work runs on a server; the damage patch
+rolls only for `Player.m_localPlayer`, so a strike is rolled once, by the attacking
+client, and replicates as part of the hit; and the art bundle is skipped entirely
+(`GUIManager.IsHeadless()`), since a server has no renderer to draw it with.
+
+Two things worth knowing rather than being surprised by:
+
+- The item prefab is registered when a local player spawns, which never happens on a
+  dedicated server, so the server does not carry it. This is benign:
+  `ZNetScene.CreateObject` returns null for an unknown prefab **without touching the
+  ZDO**, so a dropped Gungnir still persists in the world and still replicates between
+  clients — the server simply does not instantiate it locally.
+- Damage and chance values are ordinary client-side config, not server-synced. A client
+  editing `LightningDamage` affects its own hits. Fine among friends; worth knowing if
+  you run a public server.
+
 Nothing to change when the mod is finished — just build `-c Release` to package.
 
 ---
@@ -313,17 +411,21 @@ Nothing to change when the mod is finished — just build `-c Release` to packag
 
 ### Console
 
-Open the console with F5 (needs `-console` in r2modman's launch parameters). The
-command is flagged as a cheat, so vanilla refuses it unless `devcommands` is on — a
-normal player cannot conjure a Gungnir from the console.
+Open the console with F5 (needs `-console` in r2modman's launch parameters). The command
+itself is not a cheat — `empty` and `recover` are the two a player reaches for when
+their staffs are at risk, and gating those behind `devcommands` would be backwards.
+Spawning is guarded separately: `give` refuses unless the game was launched with
+`-console` *and* `devcommands` is on, so a normal playthrough cannot conjure a Gungnir.
 
 | Command | Effect |
 | --- | --- |
-| `gungnir give` | Put a Gungnir in your inventory — a testing shortcut past the recipe |
+| `gungnir status` | Damage, hit feedback, rack contents and current selection |
+| `gungnir empty` | Move every staff out of the rack into your inventory — **do this before uninstalling** |
+| `gungnir recover` | Hand back Gungnirs stranded in the world by the pre-fix drop bug (same session only) |
 | `gungnir staffs` | List what the mod detected as a staff |
-| `gungnir status` | Dump the rack contents and current selection |
 | `gungnir holster` | Holster the active staff |
-| `gungnir find` | Locate Gungnirs |
+| `gungnir find` | Search ObjectDB prefab names |
+| `gungnir give` | Put a Gungnir in your inventory — a testing shortcut past the recipe |
 
 ### Scripts
 
@@ -342,12 +444,6 @@ failure without launching the game:
 powershell -File tools/Verify-Patches.ps1
 ```
 
-`Blueprint.cs` dumps a vanilla item prefab's full component tree to the log when
-`VerboseLogging` is on. Building a standalone item means reproducing the component set
-Valheim expects — miss one and the item is unpickupable, invisible on the ground, or
-fails to replicate — and reading a real one is the only reliable way to know what that
-set is.
-
 ## Debugging
 
 - Log: `…\profiles\QoL\BepInEx\LogOutput.log`
@@ -357,6 +453,37 @@ set is.
 
 ## Packaging
 
-Bump `<Version>` in the csproj, `ModVersion` in `Plugin.cs` and `version_number` in
-`Thunderstore/manifest.json` together, then zip the Release DLL with the manifest,
-`icon.png` (256×256) and `README.md`.
+One command produces the upload-ready zip in `dist/`:
+
+```bash
+dotnet build GungnirStaff/GungnirStaff.csproj -t:Package
+```
+
+```
+dist/GungnirStaff-1.0.0.zip
+├── manifest.json          # from Thunderstore/
+├── icon.png               # art/Gungnir staff.png, renamed
+├── README.md              # this file
+└── plugins/
+    └── GungnirStaff.dll   # Release
+```
+
+The target builds Release through a nested MSBuild rather than depending on the normal
+`Build`, which forces two things it would be easy to get wrong by hand:
+
+- **Configuration is forced to Release.** `Plugin.cs` switches `NetworkCompatibility` on
+  the build configuration, so a Debug package ships with the multiplayer handshake
+  *disabled* — it would not require other players to have the mod.
+- **`Deploy` is forced off.** An ordinary build copies into the live r2modman profile;
+  packaging must never quietly swap the DLL you are playing with for a different
+  configuration.
+
+It refuses to run rather than producing a broken package if the csproj `<Version>` and
+the manifest's `version_number` disagree — the manifest version is read out of the JSON
+at evaluation time and compared — or if the icon is missing. Bump `<Version>`,
+`ModVersion` in `Plugin.cs` and `version_number` together; the first two are compared
+by the version check, and `ModVersion` is what the multiplayer handshake compares
+between clients.
+
+`icon.png` must be exactly 256×256 or Thunderstore's own validator rejects the upload.
+`art/Gungnir staff.png` already is, and the target renames it on the way into the zip.

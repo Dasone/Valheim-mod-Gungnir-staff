@@ -189,12 +189,6 @@ namespace GungnirStaff
             var already = attach.Find(PrefabName);
             if (already != null)
             {
-                if (!_loggedBudget)
-                {
-                    _loggedBudget = true;
-                    LogPolyBudget(itemPrefab, already.gameObject);
-                }
-
                 return true; // already swapped
             }
 
@@ -220,10 +214,7 @@ namespace GungnirStaff
 
             AdoptVanillaShaders(visual, itemPrefab);
 
-            _loggedBudget = true;
-            LogPolyBudget(itemPrefab, visual);
-
-            GungnirStaffPlugin.Log.LogMessage(
+            ModConfig.Trace(
                 $"Custom Gungnir model attached ({hidden} donor renderer(s) hidden).");
             return true;
         }
@@ -305,7 +296,7 @@ namespace GungnirStaff
             // so anything after the early-return below would never run for it.
             OrientBack(vis);
 
-            var held = vis.m_rightItemInstance ?? vis.m_leftItemInstance;
+            var held = PickHeldInstance(vis);
             if (held == null)
             {
                 return;
@@ -343,6 +334,8 @@ namespace GungnirStaff
                 visual.localRotation = modelRotation;
             }
 
+            DiagnoseFlicker(player, visual);
+
             // Which end actually leads, measured rather than reasoned about: project the
             // blade's offset from the grip onto the player's facing. Positive means the
             // blade is in front.
@@ -370,6 +363,13 @@ namespace GungnirStaff
             // glow stays welded to the blade in both stances.
             OrientEffects(held.transform, visual, staffStance);
 
+            // Standalone has no donor particle system to place, so it grows its own on
+            // the blade instead.
+            if (ModConfig.StandalonePrefab.Value)
+            {
+                BladeGlow.Apply(held, visual, staffStance);
+            }
+
             if (visual.localPosition != offset)
             {
                 visual.localPosition = offset;
@@ -394,94 +394,6 @@ namespace GungnirStaff
         /// </summary>
 
         /// <summary>
-        ///     Logs our triangle count next to real Valheim weapons.
-        ///
-        ///     "Is this too heavy?" is only answerable against what the game actually
-        ///     ships, so the donor spear and a couple of vanilla weapons are counted at
-        ///     runtime rather than guessed at.
-        /// </summary>
-        private static void LogPolyBudget(GameObject itemPrefab, GameObject visual)
-        {
-            var mine = CountTriangles(visual);
-            var report = $"Gungnir model: {mine} tris. Vanilla for comparison -";
-
-            var db = ObjectDB.instance;
-            if (db != null)
-            {
-                foreach (var name in new[]
-                         {
-                             "SpearSplitner_Lightning", "SpearCarapace", "SpearBronze",
-                             "StaffFireball", "StaffIceShards",
-                         })
-                {
-                    var prefab = db.GetItemPrefab(name);
-                    if (prefab == null)
-                    {
-                        continue;
-                    }
-
-                    var attach = FindAttach(prefab);
-                    if (attach != null)
-                    {
-                        report += $" {name}={CountTriangles(attach.gameObject)};";
-                    }
-                }
-            }
-
-            GungnirStaffPlugin.Log.LogMessage(report);
-        }
-
-        /// <summary>
-        ///     Counts triangles without needing the mesh to be CPU-readable.
-        ///
-        ///     Mesh.triangles throws on any mesh imported without Read/Write enabled,
-        ///     which is almost everything the game ships - that is why the earlier
-        ///     comparison reported zero for every vanilla weapon. GetIndexCount reads the
-        ///     submesh descriptor instead and works either way.
-        /// </summary>
-        private static int CountTriangles(GameObject root)
-        {
-            var total = 0;
-
-            foreach (var mf in root.GetComponentsInChildren<MeshFilter>(true))
-            {
-                total += IndicesOf(mf.sharedMesh);
-            }
-
-            foreach (var smr in root.GetComponentsInChildren<SkinnedMeshRenderer>(true))
-            {
-                total += IndicesOf(smr.sharedMesh);
-            }
-
-            return total;
-        }
-
-        private static int IndicesOf(Mesh mesh)
-        {
-            if (mesh == null)
-            {
-                return 0;
-            }
-
-            try
-            {
-                var n = 0u;
-                for (var i = 0; i < mesh.subMeshCount; i++)
-                {
-                    n += mesh.GetIndexCount(i);
-                }
-
-                return (int)(n / 3);
-            }
-            catch (System.Exception)
-            {
-                return 0;
-            }
-        }
-
-
-
-        /// <summary>
         ///     The long axis of the donor spear's hidden mesh, in the attach's own space.
         ///
         ///     Our model runs along its local +Y, so rotating that onto this axis lays the
@@ -492,15 +404,58 @@ namespace GungnirStaff
         {
             axis = Vector3.up;
 
+            // Clone path: the hidden donor mesh is right here inside our own attach.
             var donor = attach.GetComponentsInChildren<MeshFilter>(true)
                 .FirstOrDefault(mf => mf.sharedMesh != null
                                       && !mf.transform.IsChildOf(visual));
+
+            // Standalone path: there is no donor inside us, so read the angle off a
+            // vanilla spear prefab in ObjectDB instead. Its attach is positioned by the
+            // same bone, so the axis measured in ITS attach space transfers directly to
+            // ours. Referenced, never cloned - only the transform is measured.
             if (donor == null)
             {
-                return false;
+                var reference = GungnirStandalone.FindReferenceSpear(ObjectDB.instance);
+                var referenceAttach = reference != null ? FindAttach(reference) : null;
+                if (referenceAttach == null)
+                {
+                    return false;
+                }
+
+                var referenceMesh = referenceAttach.GetComponentsInChildren<MeshFilter>(true)
+                    .FirstOrDefault(mf => mf.sharedMesh != null);
+                if (referenceMesh == null)
+                {
+                    return false;
+                }
+
+                if (!LongAxisOf(referenceMesh, referenceAttach, out axis))
+                {
+                    return false;
+                }
+
+                if (!_loggedBackAxis)
+                {
+                    _loggedBackAxis = true;
+                    ModConfig.Trace($"Back axis taken from reference spear '{reference.name}'.");
+                }
+
+                return true;
             }
 
-            var size = donor.sharedMesh.bounds.size;
+            return LongAxisOf(donor, attach, out axis);
+        }
+
+        /// <summary>
+        ///     The mesh's longest local axis, expressed in the given attach's space.
+        ///     Uses mesh bounds, not renderer bounds: the latter are axis-aligned in world
+        ///     space and would give a meaningless direction.
+        /// </summary>
+        private static bool LongAxisOf(MeshFilter mesh, Transform attach, out Vector3 axis)
+        {
+            axis = Vector3.up;
+
+            var size = mesh.sharedMesh.bounds.size;
             Vector3 local;
             if (size.x >= size.y && size.x >= size.z)
             {
@@ -523,9 +478,36 @@ namespace GungnirStaff
                 return false;
             }
 
-            var world = donor.transform.TransformDirection(local);
+            var world = mesh.transform.TransformDirection(local);
             axis = attach.InverseTransformDirection(world).normalized;
             return axis.sqrMagnitude > 0.001f;
+        }
+
+
+        /// <summary>
+        ///     The hand instance that actually holds our mesh.
+        ///
+        ///     Selecting the right hand first looked equivalent and was not: projecting a
+        ///     staff makes the item two-handed-left, so Valheim moves it to the other
+        ///     hand - but the right-hand instance can still be alive that frame. Taking it
+        ///     blindly oriented an empty leftover while the real model kept the melee
+        ///     angle, which is exactly the "staff stance looks like melee" symptom.
+        /// </summary>
+        private static GameObject PickHeldInstance(VisEquipment vis)
+        {
+            var right = vis.m_rightItemInstance;
+            if (right != null && FindVisual(right.transform) != null)
+            {
+                return right;
+            }
+
+            var left = vis.m_leftItemInstance;
+            if (left != null && FindVisual(left.transform) != null)
+            {
+                return left;
+            }
+
+            return right ?? left;
         }
 
         private static Transform FindVisual(Transform root)
@@ -709,9 +691,89 @@ namespace GungnirStaff
         private static Sprite _icon;
         private static bool _iconMissing;
 
-        private static bool _loggedBack;
 
-        private static bool _loggedBudget;
+        /// <summary>
+        ///     Forces the bundle to load now rather than on first use.
+        ///
+        ///     AssetBundle.LoadFromMemory is synchronous and decompresses ~140 KB, and the
+        ///     prefab was only touched when the item was first created - so the cost landed
+        ///     as a multi-second freeze mid-game, on whatever frame the player first
+        ///     obtained a Gungnir. Paying it during load puts the hitch where hitches are
+        ///     expected.
+        /// </summary>
+        internal static void Preload()
+        {
+            if (_visualPrefab != null || _failed)
+            {
+                return;
+            }
+
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var loaded = Prefab != null;
+            watch.Stop();
+
+            if (loaded)
+            {
+                ModConfig.Trace($"Bundle preloaded in {watch.ElapsedMilliseconds} ms.");
+            }
+        }
+
+
+        private static int _lastVisualCount = -1;
+        private static int _lastEnabledRenderers = -1;
+
+        /// <summary>
+        ///     Reports how many copies of our mesh exist on the player and how many of
+        ///     their renderers are on.
+        ///
+        ///     Flicker is either two copies fighting over the same depth, or renderers
+        ///     being toggled every frame. These two numbers separate those cases, and
+        ///     only log when they change, so this is cheap and quiet.
+        /// </summary>
+        private static void DiagnoseFlicker(Player player, Transform visual)
+        {
+            if (!ModConfig.VerboseLogging.Value)
+            {
+                return;
+            }
+
+            var copies = 0;
+            var enabled = 0;
+            foreach (var t in player.GetComponentsInChildren<Transform>(true))
+            {
+                if (t.name != PrefabName)
+                {
+                    continue;
+                }
+
+                copies++;
+                foreach (var r in t.GetComponentsInChildren<Renderer>(true))
+                {
+                    if (r.enabled)
+                    {
+                        enabled++;
+                    }
+                }
+            }
+
+            if (copies == _lastVisualCount && enabled == _lastEnabledRenderers)
+            {
+                return;
+            }
+
+            _lastVisualCount = copies;
+            _lastEnabledRenderers = enabled;
+            GungnirStaffPlugin.Log.LogWarning(
+                $"FLICKER copies of the model on the player={copies} "
+                + $"enabledRenderers={enabled} "
+                + $"(right={(player.m_visEquipment.m_rightItemInstance != null)} "
+                + $"left={(player.m_visEquipment.m_leftItemInstance != null)} "
+                + $"back={(player.m_visEquipment.m_rightBackItemInstance != null)})");
+        }
+
+        private static bool _loggedBackAxis;
+
+        private static bool _loggedBack;
 
         private static bool _lastStanceLogged;
 

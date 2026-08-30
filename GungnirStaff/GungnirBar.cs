@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
 
 namespace GungnirStaff
@@ -16,9 +18,34 @@ namespace GungnirStaff
     /// </summary>
     internal static class GungnirBar
     {
+        /// <summary>Name given to the shortcut labels, so they can be found again.</summary>
+        private const string SlotKeyLabelName = "GungnirSlotKey";
+
         private static GameObject _root;
         private static InventoryGrid _grid;
         private static Inventory _bound;
+
+        /// <summary>The shortcut labels currently on the bar.</summary>
+        private static readonly List<TMP_Text> _slotKeyLabels = new List<TMP_Text>();
+
+        /// <summary>
+        ///     How many slots those labels were built for. Tracked separately from the
+        ///     list length because a slot bound to nothing gets no label, and comparing
+        ///     the list length to the slot count would then rebuild on every frame.
+        /// </summary>
+        private static int _labelledSlots = -1;
+
+        private static bool _dragging;
+        private static Vector2 _dragGrabPoint;
+        private static Vector2 _dragStartPosition;
+        private static Vector2 _dragPosition;
+
+        /// <summary>
+        ///     Set while the drag writes its result back to the config, so the bar is not
+        ///     torn down and rebuilt underneath the cursor. Every other layout setting
+        ///     still rebuilds normally.
+        /// </summary>
+        private static bool _writingOwnPosition;
 
         /// <summary>The live grid, or null when the bar does not exist right now.</summary>
         internal static InventoryGrid Grid => _grid;
@@ -64,10 +91,13 @@ namespace GungnirStaff
                 _root.SetActive(true);
             }
 
+            // Before ApplyLayout, which reads whatever position the drag has reached.
+            UpdateDrag();
             ApplyLayout();
 
             _bound = Container.Inventory;
             _grid.UpdateInventory(_bound, player, gui.m_dragItem);
+            SyncSlotKeyLabels();
             HighlightSelected();
         }
 
@@ -86,6 +116,7 @@ namespace GungnirStaff
 
         private static void Hide()
         {
+            EndDrag(false);
             Container = null;
             if (_root != null && _root.activeSelf)
             {
@@ -101,10 +132,175 @@ namespace GungnirStaff
                 Object.Destroy(_root);
             }
 
+            _dragging = false;
             _root = null;
             _grid = null;
             _bound = null;
             Container = null;
+
+            // The labels lived on the slot widgets, which have just gone with the root.
+            _slotKeyLabels.Clear();
+            _labelledSlots = -1;
+        }
+
+        /// <summary>
+        ///     Puts each slot's shortcut under it, the way the vanilla hotbar numbers its
+        ///     own slots.
+        ///
+        ///     Rebuilt rather than refreshed when the row changes shape: vanilla's
+        ///     <c>UpdateGui</c> destroys and recreates every slot widget whenever the
+        ///     inventory's width changes - an upgrade widening the rack, say - taking our
+        ///     labels with them. It leaves the widgets alone otherwise, which is why this
+        ///     is not doing work on every frame.
+        /// </summary>
+        private static void SyncSlotKeyLabels()
+        {
+            var elements = _grid.m_elements;
+
+            if (!ModConfig.ShowSlotKeys.Value || elements == null)
+            {
+                if (_slotKeyLabels.Count > 0)
+                {
+                    ClearSlotKeyLabels();
+                }
+
+                return;
+            }
+
+            if (LabelsAreCurrent(elements.Count))
+            {
+                return;
+            }
+
+            ClearSlotKeyLabels();
+
+            for (var i = 0; i < elements.Count; i++)
+            {
+                var label = BuildSlotKeyLabel(elements[i], i);
+                if (label != null)
+                {
+                    _slotKeyLabels.Add(label);
+                }
+            }
+
+            _labelledSlots = elements.Count;
+            ModConfig.Trace($"Built {_slotKeyLabels.Count} shortcut label(s) for {elements.Count} slot(s).");
+        }
+
+        /// <summary>
+        ///     True when the labels still match the row. A destroyed label reads as null
+        ///     through Unity's own equality, which is how a rebuilt row is detected
+        ///     without hooking anything.
+        /// </summary>
+        private static bool LabelsAreCurrent(int slots)
+        {
+            if (_labelledSlots != slots)
+            {
+                return false;
+            }
+
+            foreach (var label in _slotKeyLabels)
+            {
+                if (label == null)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static void ClearSlotKeyLabels()
+        {
+            foreach (var label in _slotKeyLabels)
+            {
+                if (label != null)
+                {
+                    Object.Destroy(label.gameObject);
+                }
+            }
+
+            _slotKeyLabels.Clear();
+            _labelledSlots = -1;
+        }
+
+        /// <summary>
+        ///     One label, cloned from the slot's own stack-count text so it inherits
+        ///     Valheim's font, outline and material rather than needing any of that built
+        ///     from scratch.
+        /// </summary>
+        private static TMP_Text BuildSlotKeyLabel(InventoryGrid.Element element, int slot)
+        {
+            var source = element?.m_amount;
+            if (source == null || element.m_go == null || slot >= ModConfig.MaxSlots)
+            {
+                return null;
+            }
+
+            var text = Inputs.ShortLabel(ModConfig.SlotKeys[slot].Value);
+            if (string.IsNullOrEmpty(text))
+            {
+                // Unbound slot. No label rather than an empty box.
+                return null;
+            }
+
+            var go = Object.Instantiate(source.gameObject, element.m_go.transform);
+            go.name = SlotKeyLabelName;
+            go.SetActive(true);
+
+            var label = go.GetComponent<TMP_Text>();
+            if (label == null)
+            {
+                Object.Destroy(go);
+                return null;
+            }
+
+            // Sized from the slot rather than from a fixed number, so the labels track
+            // the bar at any BarScale and at any slot size the game's UI settings give.
+            var slotHeight = SlotHeight(element);
+
+            var rect = go.transform as RectTransform;
+            if (rect != null)
+            {
+                // Pinned to the bottom edge of the slot with a top pivot, so the text
+                // hangs underneath instead of overlapping the icon.
+                rect.anchorMin = new Vector2(0.5f, 0f);
+                rect.anchorMax = new Vector2(0.5f, 0f);
+                rect.pivot = new Vector2(0.5f, 1f);
+                rect.anchoredPosition = new Vector2(0f, -slotHeight * 0.04f);
+                rect.sizeDelta = new Vector2(slotHeight * 1.6f, slotHeight * 0.4f);
+                rect.localScale = Vector3.one;
+                rect.localRotation = Quaternion.identity;
+            }
+
+            // THE reason the labels did not show up. Cloning copies the component's
+            // enabled flag, and vanilla disables the stack-count text on any slot whose
+            // item cannot stack - UpdateGui does m_amount.enabled = maxStackSize > 1, and
+            // a staff's max stack is 1, so every slot in the rack has it switched off.
+            // SetActive(true) activates the GameObject and leaves the Behaviour disabled,
+            // so the label existed, was positioned correctly, and drew nothing.
+            label.enabled = true;
+
+            label.text = text;
+            label.fontSize = slotHeight * 0.26f * ModConfig.SlotKeyScale.Value;
+            label.enableAutoSizing = false;
+            label.alignment = TextAlignmentOptions.Top;
+            label.textWrappingMode = TextWrappingModes.NoWrap;
+            label.overflowMode = TextOverflowModes.Overflow;
+            label.color = new Color(1f, 1f, 1f, 0.7f);
+
+            // Never let a label eat a click meant for the slot above it.
+            label.raycastTarget = false;
+
+            return label;
+        }
+
+        /// <summary>The slot's own height, with a sane fallback if the rect is missing.</summary>
+        private static float SlotHeight(InventoryGrid.Element element)
+        {
+            var rect = element.m_go.transform as RectTransform;
+            var height = rect != null ? rect.rect.height : 0f;
+            return height > 1f ? height : 64f;
         }
 
         private static bool Build(InventoryGui gui)
@@ -143,10 +339,7 @@ namespace GungnirStaff
                 _grid.m_onSelected += OnSelected;
                 _grid.m_onRightClick += OnRightClick;
 
-                GungnirStaffPlugin.Log.LogInfo(
-                    $"Staff bar created under '{parent.name}' "
-                    + $"(parent active: {parent.gameObject.activeInHierarchy}, "
-                    + "own canvas + raycaster at sortingOrder 10).");
+                ModConfig.Trace($"Staff bar created under '{parent.name}'.");
                 return true;
             }
             catch (System.Exception ex)
@@ -239,6 +432,137 @@ namespace GungnirStaff
             }
         }
 
+        /// <summary>
+        ///     Layout changes rebuild the bar - except the one this file makes itself.
+        ///
+        ///     Position is applied from config every frame, so a drag needs no rebuild at
+        ///     all, and tearing the bar down the instant the mouse is released would blink
+        ///     it off screen at exactly the wrong moment.
+        /// </summary>
+        internal static void OnLayoutSettingChanged()
+        {
+            if (_writingOwnPosition)
+            {
+                return;
+            }
+
+            Teardown();
+        }
+
+        /// <summary>
+        ///     Middle-drag the bar to reposition it, while the inventory is open and the
+        ///     cursor is free. The result is written back to PositionX/PositionY, so it
+        ///     survives a relog and stays editable from F1.
+        /// </summary>
+        private static void UpdateDrag()
+        {
+            var button = ModConfig.MoveBarMouseButton.Value;
+
+            // The cursor is only free with the inventory up; dragging while it is
+            // captured by the camera would fling the bar around as the player looks.
+            if (button < 0 || !InventoryGui.IsVisible())
+            {
+                EndDrag(false);
+                return;
+            }
+
+            if (!_dragging)
+            {
+                if (ZInput.GetMouseButtonDown(button)
+                    && PointerIsOverSlots()
+                    && TryPointerInParent(out var grab))
+                {
+                    _dragging = true;
+                    _dragGrabPoint = grab;
+                    _dragStartPosition = ConfiguredPosition();
+                    _dragPosition = _dragStartPosition;
+                }
+
+                return;
+            }
+
+            // The delta between two points in the SAME space, which is why it does not
+            // matter that the parent's local coordinates and the bar's own anchored ones
+            // have different origins.
+            if (TryPointerInParent(out var now))
+            {
+                _dragPosition = ClampToRange(_dragStartPosition + (now - _dragGrabPoint));
+            }
+
+            if (!ZInput.GetMouseButton(button))
+            {
+                EndDrag(true);
+            }
+        }
+
+        private static void EndDrag(bool commit)
+        {
+            if (!_dragging)
+            {
+                return;
+            }
+
+            _dragging = false;
+            if (!commit)
+            {
+                return;
+            }
+
+            _writingOwnPosition = true;
+            try
+            {
+                ModConfig.BarOffsetX.Value = Mathf.Round(_dragPosition.x);
+                ModConfig.BarOffsetY.Value = Mathf.Round(_dragPosition.y);
+            }
+            finally
+            {
+                _writingOwnPosition = false;
+            }
+
+            ModConfig.Trace(
+                $"Staff bar moved to {ModConfig.BarOffsetX.Value}, {ModConfig.BarOffsetY.Value}.");
+        }
+
+        /// <summary>
+        ///     The cursor in the bar's PARENT space, which is the space anchoredPosition
+        ///     is measured in. Goes through RectTransformUtility rather than using raw
+        ///     pixels, so the drag tracks the cursor at any UI scale or resolution.
+        /// </summary>
+        private static bool TryPointerInParent(out Vector2 point)
+        {
+            point = Vector2.zero;
+
+            var parent = _root != null ? _root.transform.parent as RectTransform : null;
+            if (parent == null)
+            {
+                return false;
+            }
+
+            var canvas = _root.GetComponent<Canvas>();
+            var cam = canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? canvas.worldCamera
+                : null;
+
+            return RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                parent, ZInput.mousePosition, cam, out point);
+        }
+
+        private static Vector2 ConfiguredPosition()
+        {
+            return new Vector2(ModConfig.BarOffsetX.Value, ModConfig.BarOffsetY.Value);
+        }
+
+        /// <summary>
+        ///     Held to the same bounds the config accepts, so what it is dragged to is
+        ///     what gets saved rather than something BepInEx silently clamps afterwards.
+        /// </summary>
+        private static Vector2 ClampToRange(Vector2 position)
+        {
+            return new Vector2(
+                Mathf.Clamp(position.x, -2000f, 2000f),
+                Mathf.Clamp(position.y, -2000f, 2000f));
+        }
+
         private static void ApplyLayout()
         {
             var rect = _root.transform as RectTransform;
@@ -252,7 +576,7 @@ namespace GungnirStaff
             rect.anchorMin = new Vector2(0.5f, 0f);
             rect.anchorMax = new Vector2(0.5f, 0f);
             rect.pivot = new Vector2(0.5f, 0f);
-            rect.anchoredPosition = new Vector2(ModConfig.BarOffsetX.Value, ModConfig.BarOffsetY.Value);
+            rect.anchoredPosition = _dragging ? _dragPosition : ConfiguredPosition();
             rect.localScale = Vector3.one * ModConfig.BarScale.Value;
         }
 
@@ -280,6 +604,42 @@ namespace GungnirStaff
             {
                 element.m_equiped.enabled = true;
             }
+        }
+
+        /// <summary>
+        ///     True when the mouse is over one of the rack's actual SLOTS.
+        ///
+        ///     Deliberately not the same test as <see cref="PointerIsOverBar"/>. The bar
+        ///     is a clone of the player's 8x4 grid, so its own rectangle is far taller
+        ///     than the one visible row - generous is what you want when catching a
+        ///     dropped item, and wrong for starting a drag, where it would let a
+        ///     middle-click in empty space several rows above the bar pick it up.
+        /// </summary>
+        private static bool PointerIsOverSlots()
+        {
+            var elements = _grid != null ? _grid.m_elements : null;
+            if (elements == null || elements.Count == 0)
+            {
+                return false;
+            }
+
+            var canvas = _root.GetComponent<Canvas>();
+            var cam = canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? canvas.worldCamera
+                : null;
+
+            foreach (var element in elements)
+            {
+                var rect = element?.m_go != null ? element.m_go.transform as RectTransform : null;
+                if (rect != null
+                    && RectTransformUtility.RectangleContainsScreenPoint(
+                        rect, ZInput.mousePosition, cam))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>True when the mouse is inside the rack's rectangle.</summary>
