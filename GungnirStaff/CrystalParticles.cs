@@ -27,7 +27,7 @@ namespace GungnirStaff
         ///     colour work only runs when the colour actually changes.
         /// </summary>
         internal static void Apply(
-            Renderer crystal, GameObject weapon, Color colour, bool staffStance)
+            Renderer crystal, GameObject weapon, Player player, Color colour, bool staffStance)
         {
             bool show;
             switch (ModConfig.CrystalParticles.Value)
@@ -52,13 +52,18 @@ namespace GungnirStaff
             if (_orbit == null || !_orbit.transform.IsChildOf(crystal.transform))
             {
                 Clear();
-                Build(crystal, weapon);
+                Build(crystal, weapon, player);
             }
 
             if (_orbit == null)
             {
                 return;
             }
+
+            // Cheap and every frame, because the bone underneath can change scale
+            // without the systems being rebuilt - swapping hands is exactly that.
+            HoldSize(_orbit.transform);
+            HoldSize(_sparks != null ? _sparks.transform : null);
 
             if (_applied != colour)
             {
@@ -69,14 +74,19 @@ namespace GungnirStaff
 
         internal static void Clear()
         {
+            // DestroyImmediate, not Destroy. Destroy is deferred to the end of the
+            // frame, so a rebuild in the same frame - which is what a hand swap causes -
+            // put the new systems on screen alongside the old ones that were still
+            // waiting to die. Two overlapping emitters read as one effect at twice the
+            // density, which is exactly the "doubled" look.
             if (_orbit != null)
             {
-                Object.Destroy(_orbit.gameObject);
+                Object.DestroyImmediate(_orbit.gameObject);
             }
 
             if (_sparks != null)
             {
-                Object.Destroy(_sparks.gameObject);
+                Object.DestroyImmediate(_sparks.gameObject);
             }
 
             _orbit = null;
@@ -85,10 +95,29 @@ namespace GungnirStaff
             _applied = Color.clear;
         }
 
-        private static void Build(Renderer crystal, GameObject weapon)
+        private static void Build(Renderer crystal, GameObject weapon, Player player)
         {
             try
             {
+                // Anything left over from a previous life - a hot reload resets these
+                // statics without destroying what they pointed at, and a model instance
+                // can outlive the reference we had to it. Without this they accumulate,
+                // one more emitter each time.
+                // BOTH hands, not just the weapon we are building on. A staff is
+                // TwoHandedWeaponLeft and a spear is OneHanded, so selecting one moves
+                // Gungnir across - and the instance it came from can still be alive,
+                // carrying the emitters we built on it last time. Scanning only the
+                // current weapon left those running, so every swap added another set
+                // and the effect kept growing. That is the "gets bigger the more you
+                // swap" part.
+                var vis = player != null ? player.m_visEquipment : null;
+                PurgeStrays(weapon);
+                if (vis != null)
+                {
+                    PurgeStrays(vis.m_rightItemInstance);
+                    PurgeStrays(vis.m_leftItemInstance);
+                }
+
                 _material = BorrowParticleMaterial(weapon);
                 var scale = ModConfig.CrystalParticleScale.Value;
 
@@ -119,6 +148,7 @@ namespace GungnirStaff
             go.transform.SetParent(parent, false);
             go.transform.localPosition = anchor;
             go.transform.localRotation = Quaternion.identity;
+            HoldSize(go.transform);
 
             var ps = go.AddComponent<ParticleSystem>();
             var renderer = go.GetComponent<ParticleSystemRenderer>();
@@ -137,6 +167,7 @@ namespace GungnirStaff
 
             var main = ps.main;
             main.loop = true;
+            main.scalingMode = ParticleSystemScalingMode.Shape;
             main.startLifetime = new ParticleSystem.MinMaxCurve(1.6f, 3.2f);
             main.startSpeed = 0f;
             main.startSize = new ParticleSystem.MinMaxCurve(0.012f * scale, 0.024f * scale);
@@ -178,6 +209,7 @@ namespace GungnirStaff
 
             var main = ps.main;
             main.loop = true;
+            main.scalingMode = ParticleSystemScalingMode.Shape;
             main.startLifetime = new ParticleSystem.MinMaxCurve(0.45f, 0.9f);
             main.startSpeed = new ParticleSystem.MinMaxCurve(0.35f, 0.9f);
             main.startSize = new ParticleSystem.MinMaxCurve(0.008f * scale, 0.018f * scale);
@@ -210,6 +242,73 @@ namespace GungnirStaff
             FadeInOut(ps);
             ShrinkOverLife(ps, 1f, 0f);
             ps.Play();
+        }
+
+        /// <summary>
+        ///     Cancels out whatever scale the weapon is hanging off, so the motes are the
+        ///     configured size and nothing else.
+        ///
+        ///     This is the fix for the effect appearing to change size on its own.
+        ///     Selecting a staff moves Gungnir from the right hand to the left, because a
+        ///     staff is TwoHandedWeaponLeft and a spear is OneHanded - and those are two
+        ///     different bones, which need not be scaled the same. The systems hang off
+        ///     the crystal, so they inherited that difference and the motes grew or shrank
+        ///     with a stance change that has nothing to do with them. Setting the local
+        ///     scale to the inverse of the parent's makes the world scale exactly one, so
+        ///     size comes from startSize alone.
+        /// </summary>
+        private static void HoldSize(Transform t)
+        {
+            if (t == null)
+            {
+                return;
+            }
+
+            var parent = t.parent;
+            var inherited = parent != null ? parent.lossyScale : Vector3.one;
+
+            // A zero on any axis means the bone is degenerate this frame; dividing by it
+            // would put a NaN into the transform and the particles would vanish.
+            if (Mathf.Approximately(inherited.x, 0f)
+                || Mathf.Approximately(inherited.y, 0f)
+                || Mathf.Approximately(inherited.z, 0f))
+            {
+                return;
+            }
+
+            var wanted = new Vector3(1f / inherited.x, 1f / inherited.y, 1f / inherited.z);
+            if (t.localScale != wanted)
+            {
+                t.localScale = wanted;
+            }
+        }
+
+        /// <summary>
+        ///     Destroys any of our particle objects hanging off the given root that we
+        ///     are no longer tracking. Matched by name, which is why they have
+        ///     distinctive ones.
+        /// </summary>
+        private static void PurgeStrays(GameObject root)
+        {
+            if (root == null)
+            {
+                return;
+            }
+
+            foreach (var ps in root.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                if (ps == null || ReferenceEquals(ps, _orbit) || ReferenceEquals(ps, _sparks))
+                {
+                    continue;
+                }
+
+                var name = ps.gameObject.name;
+                if (name.StartsWith(OrbitName, System.StringComparison.Ordinal)
+                    || name.StartsWith(SparkName, System.StringComparison.Ordinal))
+                {
+                    Object.DestroyImmediate(ps.gameObject);
+                }
+            }
         }
 
         private static void FadeInOut(ParticleSystem ps)

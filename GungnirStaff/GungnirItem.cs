@@ -36,6 +36,38 @@ namespace GungnirStaff
             "SpearBronze",
         };
 
+        /// <summary>
+        ///     True when this ObjectDB is the game's, rather than the start scene's.
+        ///
+        ///     There are two. The main menu builds one with a fraction of the items, and
+        ///     the game scene builds the real one - so a registration hook that fires on
+        ///     both will once run against a database with no spear to read effects or a
+        ///     shader from, and none of the recipe's materials. It still "works", in that
+        ///     everything is redone correctly a moment later, but it does the build twice
+        ///     and reports a stack of failures for a situation that is entirely normal.
+        ///
+        ///     Probed by asking for the thing we actually depend on rather than a magic
+        ///     sentinel item, and quietly: no logging, because a false answer here is the
+        ///     expected case, not a problem.
+        /// </summary>
+        internal static bool HasVanillaItems(ObjectDB db)
+        {
+            if (db == null || db.m_items == null || db.m_items.Count == 0)
+            {
+                return false;
+            }
+
+            foreach (var name in BaseWeaponCandidates)
+            {
+                if (db.GetItemPrefab(name) != null)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         internal static GameObject Prefab { get; private set; }
 
         /// <summary>

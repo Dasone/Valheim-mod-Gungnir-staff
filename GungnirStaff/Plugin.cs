@@ -32,7 +32,7 @@ namespace GungnirStaff
     {
         public const string ModGuid = "dev.samspel.gungnirstaff";
         public const string ModName = "Gungnir Staff";
-        public const string ModVersion = "1.0.2";
+        public const string ModVersion = "1.0.3";
 
         internal static GungnirStaffPlugin Instance;
 
@@ -151,6 +151,11 @@ namespace GungnirStaff
             try
             {
                 GungnirVisual.Orient(player, gungnir ?? GungnirItem.CarriedBy(player));
+
+                // Deliberately outside Orient: Orient returns early when the held model
+                // is momentarily missing, which is precisely when the blade glow gets
+                // stranded on the instance the weapon just left.
+                BladeGlow.PurgeStrays(player);
             }
             catch (System.Exception ex)
             {

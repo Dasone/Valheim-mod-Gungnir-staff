@@ -20,7 +20,37 @@ namespace GungnirStaff
             var patches = harmony == null ? 0 : harmony.GetPatchedMethods().Count();
             return $"{GungnirStaffPlugin.ModName} v{GungnirStaffPlugin.ModVersion} | " +
                    $"{BuildInfo.Configuration} build {BuildInfo.BuildTime} | " +
+                   $"loaded from {LoadedFrom()} | " +
                    $"{patches} patched method(s)";
+        }
+
+        /// <summary>
+        ///     Which copy of the DLL is actually running.
+        ///
+        ///     The version number cannot answer this on its own: a development build
+        ///     carries the same ModVersion as the release it was branched from, so
+        ///     "v1.0.3" is true of both the packaged mod and a local build sitting on top
+        ///     of it. The folder name is the part that differs, and ScriptEngine loads
+        ///     from memory rather than from a path - which is itself the tell that a
+        ///     hot-reloaded build is the one in charge.
+        /// </summary>
+        private static string LoadedFrom()
+        {
+            try
+            {
+                var location = System.Reflection.Assembly.GetExecutingAssembly().Location;
+                if (string.IsNullOrEmpty(location))
+                {
+                    return "scripts (hot reload, in memory)";
+                }
+
+                var folder = System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(location));
+                return string.IsNullOrEmpty(folder) ? location : folder;
+            }
+            catch (System.Exception)
+            {
+                return "unknown";
+            }
         }
 
         /// <summary>

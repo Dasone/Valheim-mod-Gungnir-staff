@@ -33,8 +33,18 @@ namespace GungnirStaff.Patches
             try
             {
                 var db = ObjectDB.instance;
-                if (db == null || db.m_items == null || db.m_items.Count == 0)
+
+                // The start scene has an ObjectDB of its own, holding a fraction of the
+                // items. Registering against it built the prefab with no donor spear, no
+                // recipe materials and the wrong shader - all of it redone correctly when
+                // the game scene took over, but not before reporting a page of failures
+                // for a situation that is completely normal. Waiting costs nothing:
+                // CopyOtherDB fires when the real database arrives, still well before any
+                // inventory is deserialised, which is the deadline that actually matters.
+                if (!GungnirItem.HasVanillaItems(db))
                 {
+                    ModConfig.Trace(
+                        $"ObjectDB.{source} is the start scene's; waiting for the game's.");
                     return;
                 }
 

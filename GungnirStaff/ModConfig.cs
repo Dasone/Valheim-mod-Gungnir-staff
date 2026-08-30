@@ -328,10 +328,16 @@ namespace GungnirStaff
             // own effect, and the Rotation/Distance dials above place that. A standalone
             // Gungnir has no donor, so the glow is built by the mod and pinned to the
             // blade mesh - no placement dials needed.
+            // OFF by default. The blade glow can still come out at the wrong size after
+            // some stance changes - every measurable property of the particle systems is
+            // identical between a good and a bad one, so the cause is not yet found and
+            // shipping it on by default would mean shipping a visible bug. The crystal
+            // effects are unaffected and stay on. Set Lightning or SoftGlow to opt back in.
             BladeGlowStyle = config.Bind(
-                "Weapon effect", "BladeGlowStyle", GungnirStaff.BladeGlowStyle.Lightning,
+                "Weapon effect", "BladeGlowStyle", GungnirStaff.BladeGlowStyle.None,
                 "Lightning: fast crackling streaks along the blade. SoftGlow: the calmer "
-                + "haze this replaced. None: no particles.");
+                + "haze this replaced. None (default): no particles. Off for now because "
+                + "the glow can render at the wrong size after some stance changes.");
 
             LightningChance = config.Bind(
                 "Weapon effect", "LightningChance", 0.25f,

@@ -16,7 +16,7 @@ namespace GungnirStaff
         public override string Name => "gungnir";
 
         public override string Help =>
-            "gungnir status | empty | recover | staffs | holster | find | give";
+            "gungnir status | empty | recover | staffs | holster | find | give [level]";
 
         // NOT flagged as a cheat. It used to be, which meant devcommands had to be on
         // before any of it would run - including 'empty' and 'recover', the two a player
@@ -45,7 +45,7 @@ namespace GungnirStaff
             switch (sub)
             {
                 case "give":
-                    Give(player);
+                    Give(player, args.Length > 1 ? args[1] : null);
                     break;
                 case "staffs":
                     ListStaffs();
@@ -82,12 +82,32 @@ namespace GungnirStaff
             return launchedWithConsole && Terminal.m_cheat;
         }
 
-        private static void Give(Player player)
+        /// <summary>
+        ///     Spawns a Gungnir, optionally at a given upgrade level.
+        /// </summary>
+        /// <param name="levelArg">
+        ///     Requested level as typed, or null for the default. Rejected rather than
+        ///     clamped when it is out of range: silently handing over a level 3 staff
+        ///     because 9 was asked for would make a testing command lie about what it
+        ///     produced.
+        /// </param>
+        private static void Give(Player player, string levelArg)
         {
             if (!SpawningAllowed())
             {
                 Print("Spawning Gungnir needs a dev session: launch with -console and "
                       + "enable devcommands. Craft it at the Galdr Table instead.");
+                return;
+            }
+
+            var level = 1;
+            if (!string.IsNullOrEmpty(levelArg)
+                && (!int.TryParse(levelArg, out level)
+                    || level < 1
+                    || level > GungnirRecipe.MaxQuality))
+            {
+                Print($"Usage: gungnir give [1-{GungnirRecipe.MaxQuality}]  "
+                      + $"(got '{levelArg}')");
                 return;
             }
 
@@ -97,8 +117,10 @@ namespace GungnirStaff
                 return;
             }
 
+            // Quality IS the upgrade level - the same field the Galdr Table increments -
+            // so a spawned level 3 is indistinguishable from an upgraded one.
             var added = player.m_inventory.AddItem(
-                GungnirItem.PrefabName, 1, 1, 0, 0L, string.Empty, false);
+                GungnirItem.PrefabName, 1, level, 0, 0L, string.Empty, false);
 
             if (added == null)
             {
@@ -106,7 +128,18 @@ namespace GungnirStaff
                 return;
             }
 
-            Print("Added a Gungnir to your inventory (level 1).");
+            // Recorded explicitly rather than left to the fallback in OwnQuality. The
+            // rack width is derived from Gungnir's own level, and that fallback only
+            // reads m_quality while no staff is projected - true here, but the moment
+            // one is selected the stored value is what counts.
+            var container = StaffContainer.For(added);
+            if (container != null)
+            {
+                container.OwnQuality = level;
+            }
+
+            Print($"Added a Gungnir to your inventory (level {level}, "
+                  + $"{GungnirRecipe.SlotsForQuality(level)} rack slots).");
         }
 
         private static void ListStaffs()

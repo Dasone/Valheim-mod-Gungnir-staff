@@ -334,27 +334,11 @@ namespace GungnirStaff
                 visual.localRotation = modelRotation;
             }
 
-            DiagnoseFlicker(player, visual);
 
-            // Which end actually leads, measured rather than reasoned about: project the
-            // blade's offset from the grip onto the player's facing. Positive means the
-            // blade is in front.
             if (staffStance != _lastStanceLogged)
             {
                 _lastStanceLogged = staffStance;
-                var blade = visual.GetComponentsInChildren<Renderer>(true)
-                    .FirstOrDefault(r => r.gameObject.name.StartsWith(
-                        "Gungnir_Blade", System.StringComparison.OrdinalIgnoreCase));
-                var lead = blade == null
-                    ? 0f
-                    : Vector3.Dot((blade.bounds.center - held.transform.position).normalized,
-                        player.transform.forward);
-
-                var hand = player.m_visEquipment.m_rightItemInstance != null ? "right" : "left";
-                ModConfig.Trace(
-                    $"Stance={(staffStance ? "STAFF" : "SPEAR")} hand={hand} "
-                    + $"visualLocalEuler={visual.localEulerAngles} "
-                    + $"bladeLeads={lead:F2} (positive = blade in front)");
+                ModConfig.Trace($"Stance is now {(staffStance ? "STAFF" : "SPEAR")}.");
             }
 
             ApplyGrip(visual);
@@ -718,58 +702,6 @@ namespace GungnirStaff
             }
         }
 
-
-        private static int _lastVisualCount = -1;
-        private static int _lastEnabledRenderers = -1;
-
-        /// <summary>
-        ///     Reports how many copies of our mesh exist on the player and how many of
-        ///     their renderers are on.
-        ///
-        ///     Flicker is either two copies fighting over the same depth, or renderers
-        ///     being toggled every frame. These two numbers separate those cases, and
-        ///     only log when they change, so this is cheap and quiet.
-        /// </summary>
-        private static void DiagnoseFlicker(Player player, Transform visual)
-        {
-            if (!ModConfig.VerboseLogging.Value)
-            {
-                return;
-            }
-
-            var copies = 0;
-            var enabled = 0;
-            foreach (var t in player.GetComponentsInChildren<Transform>(true))
-            {
-                if (t.name != PrefabName)
-                {
-                    continue;
-                }
-
-                copies++;
-                foreach (var r in t.GetComponentsInChildren<Renderer>(true))
-                {
-                    if (r.enabled)
-                    {
-                        enabled++;
-                    }
-                }
-            }
-
-            if (copies == _lastVisualCount && enabled == _lastEnabledRenderers)
-            {
-                return;
-            }
-
-            _lastVisualCount = copies;
-            _lastEnabledRenderers = enabled;
-            GungnirStaffPlugin.Log.LogWarning(
-                $"FLICKER copies of the model on the player={copies} "
-                + $"enabledRenderers={enabled} "
-                + $"(right={(player.m_visEquipment.m_rightItemInstance != null)} "
-                + $"left={(player.m_visEquipment.m_leftItemInstance != null)} "
-                + $"back={(player.m_visEquipment.m_rightBackItemInstance != null)})");
-        }
 
         private static bool _loggedBackAxis;
 

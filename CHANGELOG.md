@@ -5,6 +5,41 @@ All notable changes to Gungnir Staff. Dates are the release date; versions follo
 major and minor — so `1.0.x` releases stay compatible with each other, and players on
 `1.0.1` and `1.0.2` can play together.
 
+## 1.0.3 — 2026-08-30
+
+### Added
+
+- `gungnir give` takes an optional upgrade level, `gungnir give 1` through
+  `gungnir give 3`, spawning the staff already upgraded so the rack comes with 4, 6 or
+  8 slots. Without a level it still gives a level 1 staff.
+
+### Fixed
+
+- **The crystal's particles could come out the wrong size** after switching staffs, and
+  stayed wrong until you unequipped or changed stance. The effect hangs off a model
+  whose mesh carries a 100x scale from its import, and the compensation for that was
+  only applied when the effect was built — so a scale read on the wrong frame was baked
+  in for good. It is now re-asserted continuously, and the particles' size no longer
+  depends on the transform at all.
+- **Effects could be left behind on the hand the weapon just came from.** Selecting a
+  staff can move Gungnir between hands, and the effect built on the old model was never
+  told to go — so it kept drawing alongside the new one. Both hands are now swept.
+- Effects are torn down immediately rather than at the end of the frame, so a rebuild
+  can no longer put the replacement on screen next to the original.
+- The mod no longer reports a page of warnings and one error while sitting in the main
+  menu. It was registering against the menu's item database, which holds a fraction of
+  the game's items; it now waits for the real one. Nothing was broken by it, but it
+  looked alarming and did the work twice.
+
+### Changed
+
+- **The blade glow is off by default** (`Weapon effect / BladeGlowStyle = None`). It can
+  still render at the wrong size after some stance changes, and every measurable
+  property of the particle systems is identical between a good one and a bad one — so
+  the cause is not yet found, and shipping it on by default would mean shipping a
+  visible bug. The crystal effects are unaffected. Set `Lightning` or `SoftGlow` to opt
+  back in.
+
 ## 1.0.2 — 2026-08-30
 
 ### Fixed

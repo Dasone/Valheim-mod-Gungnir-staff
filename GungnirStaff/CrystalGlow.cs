@@ -53,7 +53,7 @@ namespace GungnirStaff
 
             // Motes live on the crystal itself, so they follow it through the stance flip.
             var crystal = FindCrystal(attach);
-            CrystalParticles.Apply(crystal, attach, wanted, slot >= 0);
+            CrystalParticles.Apply(crystal, attach, player, wanted, slot >= 0);
         }
 
         /// <summary>Drops the glow when Gungnir is put away.</summary>

@@ -437,7 +437,7 @@ Spawning is guarded separately: `give` refuses unless the game was launched with
 | `gungnir staffs` | List what the mod detected as a staff |
 | `gungnir holster` | Holster the active staff |
 | `gungnir find` | Search ObjectDB prefab names |
-| `gungnir give` | Put a Gungnir in your inventory — a testing shortcut past the recipe |
+| `gungnir give [1-3]` | Put a Gungnir in your inventory — a testing shortcut past the recipe. The optional level spawns it already upgraded, so the rack comes with 4, 6 or 8 slots |
 
 ### Scripts
 

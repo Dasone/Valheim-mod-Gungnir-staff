@@ -8,7 +8,7 @@
     <RootNamespace>GungnirStaff</RootNamespace>
     <Product>Gungnir Staff</Product>
     <Description>A Valheim mod adding the Gungnir staff.</Description>
-    <Version>1.0.2</Version>
+    <Version>1.0.3</Version>
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
@@ -137,6 +137,23 @@
   <Target Name="DeployHotReload" AfterTargets="Build"
           Condition="'$(Deploy)' != 'false' And '$(HotReload)' == 'true' And '$(OverwriteInstalled)' != 'true'">
     <Delete Files="$(PluginDeployDir)\$(AssemblyName).dll;$(PluginDeployDir)\$(AssemblyName).pdb" ContinueOnError="true" />
+
+    <!-- A copy installed by r2modman lives under plugins/<Author>-<Mod>/, which the
+         Delete above does not cover, and it declares the same BepInPlugin GUID as the
+         one we are about to hot-reload. Two of those is a conflict, not a choice, so
+         the installed one is moved aside rather than left to fight ours.
+
+         RENAMED, not deleted: BepInEx only loads *.dll, so the suffix is enough to
+         park it, and it can be brought back by dropping the suffix. Reinstalling or
+         updating the mod in r2modman also restores it. -->
+    <ItemGroup>
+      <_InstalledConflict Include="$(BepInExDir)\plugins\**\$(AssemblyName).dll" />
+    </ItemGroup>
+    <Move SourceFiles="@(_InstalledConflict)"
+          DestinationFiles="@(_InstalledConflict->'%(FullPath).disabled-for-hotreload')"
+          ContinueOnError="true" />
+    <Message Importance="high" Condition="'@(_InstalledConflict)' != ''"
+             Text="-&gt; Parked the installed copy as %(_InstalledConflict.Filename)%(_InstalledConflict.Extension).disabled-for-hotreload so it cannot fight the hot-reloaded one" />
     <MakeDir Directories="$(ScriptsDeployDir)" />
     <Copy SourceFiles="$(TargetPath);@(_DebugSymbolsIntermediatePath)"
           DestinationFolder="$(ScriptsDeployDir)" SkipUnchangedFiles="false" ContinueOnError="true" />

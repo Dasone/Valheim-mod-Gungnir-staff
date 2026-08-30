@@ -65,14 +65,40 @@ namespace GungnirStaff
                 Build(blade, weapon, visual);
                 _builtFor = blade.transform;
 
-                _rebuilds++;
-                if (_rebuilds == 20)
+                // A sweep is only worth its cost right after the thing it cleans up can
+                // have appeared.
+                _sweepPending = true;
+
+                // Counted per FRAME, not for the lifetime of the session. The old counter
+                // totalled every rebuild ever, so twenty ordinary stance changes tripped a
+                // warning about tearing down every frame - which was never happening.
+                if (Time.frameCount == _lastRebuildFrame + 1)
                 {
-                    GungnirStaffPlugin.Log.LogWarning(
-                        "Blade glow has rebuilt 20 times - something is still tearing it "
-                        + "down each frame.");
+                    _consecutiveRebuilds++;
+                    if (_consecutiveRebuilds == 20)
+                    {
+                        GungnirStaffPlugin.Log.LogWarning(
+                            "Blade glow has rebuilt on 20 consecutive frames - something is "
+                            + "tearing it down as fast as it is built.");
+                    }
                 }
+                else
+                {
+                    _consecutiveRebuilds = 0;
+                }
+
+                _lastRebuildFrame = Time.frameCount;
             }
+
+            // EVERY FRAME, not once at build. This compensation existed and was never
+            // called, which is why the glow was sometimes enormous: the emitter simply
+            // inherited whatever scale the model carried at the moment it was created.
+            // Even once called, doing it only at build would not be enough - the model is
+            // re-parented as the weapon changes hands, and a scale read on that frame can
+            // be the wrong one, baked in for the life of that build. Re-asserting turns
+            // "wrong forever" into "wrong for at most one frame".
+            NeutraliseScale(_system != null ? _system.transform : null);
+            NeutraliseScale(_smoke != null ? _smoke.transform : null);
 
             // A mounted vanilla effect brings its own colours; only our own particles
             // need tinting.
@@ -91,23 +117,85 @@ namespace GungnirStaff
             }
         }
 
+        /// <summary>
+        ///     Destroys blade-glow objects sitting on ANY held instance that are not the
+        ///     pair we are tracking.
+        ///
+        ///     Clear() alone cannot do this. It is only reached from Apply, and Apply is
+        ///     only reached from GungnirVisual.Orient - which returns early when the held
+        ///     model is momentarily missing, exactly what happens as the weapon changes
+        ///     hands. Selecting a staff moves Gungnir between hands whenever the staff's
+        ///     item type differs (StaffShield is TwoHandedWeapon, StaffSkeleton is
+        ///     TwoHandedWeaponLeft), and VisEquipment leaves the old instance alive for a
+        ///     while. The glow built on that instance was therefore never told to go, and
+        ///     it kept drawing next to the crystal's motes - which is what reads as the
+        ///     effect suddenly being much bigger, and why it only happens on some swaps
+        ///     and comes right again after an unequip.
+        ///
+        ///     Driven from the plugin's own Update rather than from Apply, so that an
+        ///     early return upstream cannot skip it.
+        /// </summary>
+        internal static void PurgeStrays(Player player)
+        {
+            if (player == null)
+            {
+                return;
+            }
+
+            // Only after a rebuild, not on every frame. The player carries a great many
+            // particle systems and walking all of them 60 times a second is what made the
+            // game stutter - a regression I introduced chasing this bug, not part of it.
+            if (!_sweepPending)
+            {
+                return;
+            }
+
+            _sweepPending = false;
+
+            foreach (var root in new[] { player.gameObject })
+            {
+                foreach (var ps in root.GetComponentsInChildren<ParticleSystem>(true))
+                {
+                    if (ps == null || ReferenceEquals(ps, _system) || ReferenceEquals(ps, _smoke))
+                    {
+                        continue;
+                    }
+
+                    if (ps.gameObject.name.StartsWith(ObjectName, System.StringComparison.Ordinal))
+                    {
+                        Object.DestroyImmediate(ps.gameObject);
+                    }
+                }
+            }
+        }
+        private static bool _sweepPending;
+        private static int _lastRebuildFrame = -10;
+        private static int _consecutiveRebuilds;
+
         internal static void Clear()
         {
+            // DestroyImmediate throughout. Destroy is deferred to the end of the frame,
+            // and Apply tears down and rebuilds within a single frame whenever the blade
+            // it was built for changes - so the replacement was being created while the
+            // originals were still alive and still emitting. Two of these overlapping is
+            // twice the particles in the same space, which is the effect looking huge
+            // without any single number in it being wrong. That is exactly why every
+            // measurement came back identical.
             if (_system != null)
             {
-                Object.Destroy(_system.gameObject);
+                Object.DestroyImmediate(_system.gameObject);
             }
 
             if (_smoke != null)
             {
-                Object.Destroy(_smoke.gameObject);
+                Object.DestroyImmediate(_smoke.gameObject);
             }
 
             _smoke = null;
 
             if (_mounted != null)
             {
-                Object.Destroy(_mounted);
+                Object.DestroyImmediate(_mounted);
             }
 
             _mounted = null;
@@ -176,6 +264,14 @@ namespace GungnirStaff
 
             var main = ps.main;
             main.loop = true;
+            // Shape, not Unity's default of Local. Under Local, a particle's SIZE is
+            // multiplied by this system's own localScale - and localScale is exactly what
+            // NeutraliseScale writes to cancel the model's 100x import scale. Cancelling
+            // the position error therefore introduced a size error of the same magnitude
+            // the moment the inherited scale was anything but 1. Shape keeps the emitter
+            // shape scaled by the transform, which is what the neutralising is for, and
+            // takes sizes out of the transform's hands entirely.
+            main.scalingMode = ParticleSystemScalingMode.Shape;
             main.startLifetime = new ParticleSystem.MinMaxCurve(0.35f, 0.8f);
             main.startSpeed = new ParticleSystem.MinMaxCurve(0.02f, 0.12f);
             main.startSize = new ParticleSystem.MinMaxCurve(0.03f * scale, 0.07f * scale);
@@ -245,6 +341,7 @@ namespace GungnirStaff
 
             var main = ps.main;
             main.loop = true;
+            main.scalingMode = ParticleSystemScalingMode.Shape;
             // Longer-lived and faster than before, so a spark carries well past the
             // point rather than dying at the blade.
             main.startLifetime = new ParticleSystem.MinMaxCurve(0.28f, 0.6f);
@@ -338,6 +435,7 @@ namespace GungnirStaff
 
             var main = _smoke.main;
             main.loop = true;
+            main.scalingMode = ParticleSystemScalingMode.Shape;
             main.startLifetime = new ParticleSystem.MinMaxCurve(1.4f, 2.8f);
             main.startSpeed = 0f;
             main.startSize = new ParticleSystem.MinMaxCurve(0.012f * scale, 0.026f * scale);
@@ -402,15 +500,6 @@ namespace GungnirStaff
             // and turned every offset into a hundred times what it said.
             var centre = visual.InverseTransformPoint(blade.bounds.center);
             var towardsTip = Vector3.up;
-
-            if (!_loggedAnchor)
-            {
-                _loggedAnchor = true;
-                GungnirStaffPlugin.Log.LogWarning(
-                    $"EMITTER visualScale={visual.lossyScale.ToString("F2")} "
-                    + $"bladeScale={blade.transform.lossyScale.ToString("F2")} "
-                    + $"localCentre={centre.ToString("F2")}");
-            }
 
             // Negative: down the shaft from the blade's middle, toward the socket.
             return centre + towardsTip * ModConfig.BladeGlowOffset.Value;
@@ -481,11 +570,23 @@ namespace GungnirStaff
         /// </summary>
         private static void NeutraliseScale(Transform emitter)
         {
+            if (emitter == null)
+            {
+                return;
+            }
+
             var parentScale = emitter.parent != null ? emitter.parent.lossyScale : Vector3.one;
-            emitter.localScale = new Vector3(
+            var wanted = new Vector3(
                 Mathf.Approximately(parentScale.x, 0f) ? 1f : 1f / parentScale.x,
                 Mathf.Approximately(parentScale.y, 0f) ? 1f : 1f / parentScale.y,
                 Mathf.Approximately(parentScale.z, 0f) ? 1f : 1f / parentScale.z);
+
+            // Only written when it actually differs, so this is a comparison per frame
+            // rather than a transform write.
+            if (emitter.localScale != wanted)
+            {
+                emitter.localScale = wanted;
+            }
         }
 
         private static void Tint(Color colour)
