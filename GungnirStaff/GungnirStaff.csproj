@@ -8,7 +8,7 @@
     <RootNamespace>GungnirStaff</RootNamespace>
     <Product>Gungnir Staff</Product>
     <Description>A Valheim mod adding the Gungnir staff.</Description>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
@@ -33,6 +33,11 @@
          version numbers agree instead of trusting whoever bumped them. -->
     <ThunderstoreManifest>$(MSBuildThisFileDirectory)..\Thunderstore\manifest.json</ThunderstoreManifest>
     <ThunderstoreVersion Condition="Exists('$(ThunderstoreManifest)')">$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(ThunderstoreManifest)')), '"version_number"\s*:\s*"([^"]+)"').Groups[1].Value)</ThunderstoreVersion>
+    <!-- ModVersion is the third place a version lives, and the one the multiplayer
+         handshake actually compares between clients - so it is worth proving rather
+         than trusting, same as the manifest. -->
+    <PluginSource>$(MSBuildThisFileDirectory)Plugin.cs</PluginSource>
+    <PluginModVersion Condition="Exists('$(PluginSource)')">$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(PluginSource)')), 'ModVersion\s*=\s*"([^"]+)"').Groups[1].Value)</PluginModVersion>
   </PropertyGroup>
 
   <ItemGroup Label="Build-time only">
@@ -190,6 +195,8 @@
   <Target Name="Package">
     <Error Condition="'$(Version)' != '$(ThunderstoreVersion)'"
            Text="Version mismatch: csproj is '$(Version)' but Thunderstore/manifest.json is '$(ThunderstoreVersion)'. Bump them together." />
+    <Error Condition="'$(Version)' != '$(PluginModVersion)'"
+           Text="Version mismatch: csproj is '$(Version)' but ModVersion in Plugin.cs is '$(PluginModVersion)'. That is the version the multiplayer handshake compares - bump all three together." />
     <Error Condition="!Exists('$(PackageIconSource)')"
            Text="Icon not found: $(PackageIconSource). Thunderstore requires a 256x256 icon.png." />
 
