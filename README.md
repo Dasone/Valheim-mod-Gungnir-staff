@@ -76,7 +76,6 @@ Made at the **Galdr Table, level 2** — an upgraded table, unlike the basic sta
 | Refined eitr | 30 | 20 | 30 |
 | Thunder stone | 3 | 2 | 4 |
 | Black core | 2 | 1 | 2 |
-| Gjall trophy | 1 | — | — |
 | **Rack slots** | **4** | **6** | **8** |
 
 Three levels rather than four, because the levels exist to buy rack slots and the rack
@@ -84,8 +83,7 @@ is full at level 3. The 8-slot ceiling is itself pinned by the `Alt`+`1`…`Alt`
 shortcuts, so a fourth upgrade could only have cost materials and granted nothing.
 
 Black cores gate it behind actually delving the Infested Mines rather than gathering
-on the surface; the Gjall trophy is a mid-Mistlands gate rather than a "finished the
-biome" one.
+on the surface.
 
 Vanilla computes an upgrade requirement as `m_amount` at level 1 and
 `(level - 1) * m_amountPerLevel` above it, a curve that cannot produce the thunder
@@ -289,11 +287,25 @@ Every build copies `GungnirStaff.dll` + `.pdb` into
 | --- | --- |
 | `dotnet build` | install into `BepInEx/plugins/GungnirStaff/` (needs a game restart) |
 | `dotnet build -p:HotReload=true` | deploy to `BepInEx/scripts/` — ScriptEngine reloads it live |
+| `dotnet build -p:OverwriteInstalled=true` | drop the build on top of the copy installed from Thunderstore |
 | `dotnet build -p:Deploy=false` | build only, no copy |
 
-Each deploy mode **deletes the copy in the other location**. Two copies of the same
-plugin GUID collide and the second one silently refuses to load, so the build makes
+Each deploy mode **deletes the copies in the other locations**. Two copies of the same
+plugin GUID collide and which one wins is not something to rely on, so the build makes
 that impossible rather than leaving you to debug it.
+
+`OverwriteInstalled` is for testing a local build while the *published* mod is
+installed from Thunderstore. r2modman installs under `plugins/<Author>-<Mod>/`, which
+is neither of the paths the other two modes manage, so without this the local build
+would simply be a second copy of the same GUID fighting the released one. The path is
+matched with a glob rather than assumed, so it finds the install whatever the author
+namespace is, and it warns instead of silently doing nothing when no install is there.
+r2modman is not upset by it — it only sees its own file — and reinstalling or updating
+the mod from Thunderstore restores it.
+
+Note this deploys whichever configuration you build, so by default that is **Debug**,
+whose `NetworkCompatibility` is `NotEnforced`. Add `-c Release` when what you want to
+test is the shipping behaviour.
 
 To make *every* build hot-reload — including Rider's Build Solution (Ctrl+F9) — set
 `<HotReload>true</HotReload>` in your `Environment.props`. That's the setting to flip
