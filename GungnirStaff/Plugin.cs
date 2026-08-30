@@ -32,7 +32,7 @@ namespace GungnirStaff
     {
         public const string ModGuid = "dev.samspel.gungnirstaff";
         public const string ModName = "Gungnir Staff";
-        public const string ModVersion = "1.0.1";
+        public const string ModVersion = "1.0.2";
 
         internal static GungnirStaffPlugin Instance;
 

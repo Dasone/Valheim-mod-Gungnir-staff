@@ -34,7 +34,18 @@ $mod = [Mono.Cecil.ModuleDefinition]::ReadModule($Dll, $pars)
 $fail = 0
 $ok = 0
 
-foreach ($t in $mod.Types) {
+# Patch classes can be nested inside another type. Harmony's PatchAll finds those
+# through Assembly.GetTypes(); this script used to walk only the top level, so a
+# nested patch was invisible here - reported as neither OK nor FAILED, which is the
+# worst outcome for a tool whose job is to prove nothing is missing.
+$modTypes = New-Object System.Collections.ArrayList
+function CollectTypes($t) {
+  [void]$modTypes.Add($t)
+  foreach ($n in $t.NestedTypes) { CollectTypes $n }
+}
+foreach ($t in $mod.Types) { CollectTypes $t }
+
+foreach ($t in $modTypes) {
   # Class-level [HarmonyPatch(...)]
   $classType = $null
   $classMethod = $null
