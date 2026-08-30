@@ -1,0 +1,30 @@
+<Project>
+
+  <!--
+    Machine-specific path overrides.
+    Copy Environment.props.example -> Environment.props and edit it if your
+    install locations differ. Environment.props is git-ignored on purpose so
+    every developer can point at their own game / profile without conflicts.
+  -->
+  <Import Project="$(MSBuildThisFileDirectory)Environment.props"
+          Condition="Exists('$(MSBuildThisFileDirectory)Environment.props')" />
+
+  <PropertyGroup Label="Defaults">
+    <ValheimDir Condition="'$(ValheimDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Valheim</ValheimDir>
+    <R2ModManDir Condition="'$(R2ModManDir)' == ''">$(AppData)\r2modmanPlus-local</R2ModManDir>
+    <R2Profile Condition="'$(R2Profile)' == ''">QoL</R2Profile>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Derived paths">
+    <ValheimManagedDir>$(ValheimDir)\valheim_Data\Managed</ValheimManagedDir>
+    <ProfileDir>$(R2ModManDir)\Valheim\profiles\$(R2Profile)</ProfileDir>
+    <BepInExDir>$(ProfileDir)\BepInEx</BepInExDir>
+    <BepInExCoreDir>$(BepInExDir)\core</BepInExCoreDir>
+    <JotunnDir>$(BepInExDir)\plugins\ValheimModding-Jotunn</JotunnDir>
+    <!-- Normal install location: BepInEx/plugins/<AssemblyName>/ -->
+    <PluginDeployDir>$(BepInExDir)\plugins\$(MSBuildProjectName)</PluginDeployDir>
+    <!-- ScriptEngine hot-reload location: BepInEx/scripts/ -->
+    <ScriptsDeployDir>$(BepInExDir)\scripts</ScriptsDeployDir>
+  </PropertyGroup>
+
+</Project>

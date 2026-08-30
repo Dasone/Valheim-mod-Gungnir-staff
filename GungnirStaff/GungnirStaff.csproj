@@ -1,0 +1,132 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Jotunn 2.29.2 targets net462; Valheim's Unity 6 Mono runtime speaks the
+         .NET Framework profile. Match Jotunn exactly. -->
+    <TargetFramework>net462</TargetFramework>
+    <AssemblyName>GungnirStaff</AssemblyName>
+    <RootNamespace>GungnirStaff</RootNamespace>
+    <Product>Gungnir Staff</Product>
+    <Description>A Valheim mod adding the Gungnir staff.</Description>
+    <Version>0.1.0</Version>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- Mono reads portable PDBs; this gives real line numbers in BepInEx stack traces. -->
+    <DebugType>portable</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+
+    <!-- A BepInEx plugin is a bare DLL: no deps.json, no ref assembly, no
+         NuGet payload copied next to it. -->
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+
+    <!-- MSB3277: Unity ships several assemblies at conflicting versions; harmless here. -->
+    <NoWarn>$(NoWarn);MSB3277;CS0649;CS0169</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup Label="Build-time only">
+    <!-- Lets us compile net462 without Visual Studio's targeting packs installed. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <!-- Publicizes the game assemblies below so private/internal members
+         (m_instance, m_inventory, ...) are reachable from mod code. -->
+    <PackageReference Include="BepInEx.AssemblyPublicizer.MSBuild" Version="0.4.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup Label="Valheim game assemblies">
+    <Reference Include="$(ValheimManagedDir)\assembly_valheim.dll" Publicize="true" Private="false" />
+    <Reference Include="$(ValheimManagedDir)\Assembly-CSharp.dll" Publicize="true" Private="false" />
+    <Reference Include="$(ValheimManagedDir)\assembly_utils.dll" Publicize="true" Private="false" />
+    <Reference Include="$(ValheimManagedDir)\assembly_guiutils.dll" Publicize="true" Private="false" />
+    <Reference Include="$(ValheimManagedDir)\assembly_postprocessing.dll" Private="false" />
+    <Reference Include="$(ValheimManagedDir)\SoftReferenceableAssets.dll" Private="false" />
+    <Reference Include="$(ValheimManagedDir)\gui_framework.dll" Private="false" />
+    <Reference Include="$(ValheimManagedDir)\com.rlabrecque.steamworks.net.dll" Private="false" />
+  </ItemGroup>
+
+  <ItemGroup Label="Unity engine assemblies">
+    <Reference Include="$(ValheimManagedDir)\UnityEngine*.dll" Private="false" />
+    <Reference Include="$(ValheimManagedDir)\Unity.*.dll" Private="false" />
+  </ItemGroup>
+
+  <ItemGroup Label="Modding stack (from the active r2modman profile)">
+    <Reference Include="$(BepInExCoreDir)\BepInEx.dll" Private="false" />
+    <Reference Include="$(BepInExCoreDir)\0Harmony.dll" Private="false" />
+    <Reference Include="$(BepInExCoreDir)\MonoMod.Utils.dll" Private="false" />
+    <Reference Include="$(BepInExCoreDir)\MonoMod.RuntimeDetour.dll" Private="false" />
+    <Reference Include="$(JotunnDir)\Jotunn.dll" Private="false" />
+  </ItemGroup>
+
+  <ItemGroup Label="Art">
+    <!-- Embedded so Jotunn's AssetUtils.LoadAssetBundleFromResources can find it
+         and the mod stays a single DLL with no loose asset files to deploy. -->
+    <EmbeddedResource Include="Assets\gungnir" LogicalName="GungnirStaff.gungnir" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\Directory.Build.props" Link="Directory.Build.props" />
+    <None Include="..\README.md" Link="README.md" />
+  </ItemGroup>
+
+  <!-- Bakes the build timestamp into the assembly, so a status line can prove
+       which DLL is actually running after a hot reload. Regenerated every build. -->
+  <Target Name="GenerateBuildInfo" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <BuildInfoPath>$(IntermediateOutputPath)BuildInfo.g.cs</BuildInfoPath>
+      <BuildStamp>$([System.DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss'))</BuildStamp>
+    </PropertyGroup>
+    <ItemGroup>
+      <BuildInfoLine Include="// &lt;auto-generated /&gt; Rewritten on every build - do not edit." />
+      <BuildInfoLine Include="namespace GungnirStaff" />
+      <BuildInfoLine Include="{" />
+      <BuildInfoLine Include="    internal static class BuildInfo" />
+      <BuildInfoLine Include="    {" />
+      <BuildInfoLine Include="        internal const string BuildTime = &quot;$(BuildStamp)&quot;%3B" />
+      <BuildInfoLine Include="        internal const string Configuration = &quot;$(Configuration)&quot;%3B" />
+      <BuildInfoLine Include="    }" />
+      <BuildInfoLine Include="}" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(BuildInfoPath)" Lines="@(BuildInfoLine)" Overwrite="true" WriteOnlyWhenDifferent="false" />
+    <ItemGroup>
+      <Compile Include="$(BuildInfoPath)" />
+      <FileWrites Include="$(BuildInfoPath)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- ==================================================================
+       Deploy
+       Build             -> BepInEx/plugins/GungnirStaff/   (normal install)
+       Build -p:HotReload=true -> BepInEx/scripts/          (ScriptEngine F6 reload)
+       Build -p:Deploy=false   -> no copy at all
+       ================================================================== -->
+  <Target Name="VerifyPaths" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(ValheimManagedDir)')"
+           Text="Valheim managed folder not found: $(ValheimManagedDir). Set &lt;ValheimDir&gt; in Environment.props." />
+    <Error Condition="!Exists('$(JotunnDir)\Jotunn.dll')"
+           Text="Jotunn.dll not found: $(JotunnDir). Install Jotunn in the '$(R2Profile)' r2modman profile, or set &lt;R2Profile&gt; in Environment.props." />
+  </Target>
+
+  <!-- Normal install. Also clears any scripts/ copy: two copies of the same
+       plugin GUID would collide and the second one silently refuses to load. -->
+  <Target Name="DeployPlugin" AfterTargets="Build"
+          Condition="'$(Deploy)' != 'false' And '$(HotReload)' != 'true'">
+    <Delete Files="$(ScriptsDeployDir)\$(AssemblyName).dll;$(ScriptsDeployDir)\$(AssemblyName).pdb" ContinueOnError="true" />
+    <MakeDir Directories="$(PluginDeployDir)" />
+    <Copy SourceFiles="$(TargetPath);@(_DebugSymbolsIntermediatePath)"
+          DestinationFolder="$(PluginDeployDir)" SkipUnchangedFiles="false" ContinueOnError="true" />
+    <Message Importance="high" Text="-&gt; Installed $(AssemblyName).dll in $(PluginDeployDir) (restart Valheim to load)" />
+  </Target>
+
+  <!-- Hot-reload install. Also clears the plugins/ copy, for the same reason. -->
+  <Target Name="DeployHotReload" AfterTargets="Build"
+          Condition="'$(Deploy)' != 'false' And '$(HotReload)' == 'true'">
+    <Delete Files="$(PluginDeployDir)\$(AssemblyName).dll;$(PluginDeployDir)\$(AssemblyName).pdb" ContinueOnError="true" />
+    <MakeDir Directories="$(ScriptsDeployDir)" />
+    <Copy SourceFiles="$(TargetPath);@(_DebugSymbolsIntermediatePath)"
+          DestinationFolder="$(ScriptsDeployDir)" SkipUnchangedFiles="false" ContinueOnError="true" />
+    <Message Importance="high" Text="-&gt; Hot-reloaded $(AssemblyName).dll into $(ScriptsDeployDir) (ScriptEngine picks it up in ~1.5s)" />
+  </Target>
+
+</Project>

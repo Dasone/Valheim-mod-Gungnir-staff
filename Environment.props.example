@@ -1,0 +1,18 @@
+<Project>
+  <PropertyGroup>
+    <!-- Where Valheim is installed (the folder containing valheim.exe). -->
+    <ValheimDir>C:\Program Files (x86)\Steam\steamapps\common\Valheim</ValheimDir>
+
+    <!-- r2modman data root. -->
+    <R2ModManDir>C:\Users\samue\AppData\Roaming\r2modmanPlus-local</R2ModManDir>
+
+    <!-- Which r2modman profile to build against and deploy into. -->
+    <R2Profile>QoL</R2Profile>
+
+    <!-- Set to true to make EVERY build (including Rider's Build Solution)
+         deploy to BepInEx/scripts/ for ScriptEngine hot-reloading instead of
+         installing normally into BepInEx/plugins/.
+         This is the setting to flip while actively developing. -->
+    <HotReload>true</HotReload>
+  </PropertyGroup>
+</Project>

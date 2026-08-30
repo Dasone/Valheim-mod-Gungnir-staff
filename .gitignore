@@ -1,0 +1,20 @@
+# Build output
+bin/
+obj/
+*.user
+*.suo
+
+# Machine-specific paths
+Environment.props
+
+# Rider / VS
+.idea/
+.vs/
+_ReSharper*/
+
+# Packaging
+dist/
+*.zip
+
+# Blender backups
+*.blend1
