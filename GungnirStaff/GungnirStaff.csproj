@@ -8,7 +8,7 @@
     <RootNamespace>GungnirStaff</RootNamespace>
     <Product>Gungnir Staff</Product>
     <Description>A Valheim mod adding the Gungnir staff.</Description>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
@@ -159,7 +159,7 @@
        reinstalling or updating the mod from Thunderstore restores it.
        ================================================================== -->
   <Target Name="DeployOverInstalled" AfterTargets="Build"
-          Condition="'$(Deploy)' != 'false' And '$(OverwriteInstalled)' == 'true'">
+          Condition="'$(OverwriteInstalled)' == 'true'">
     <ItemGroup>
       <_InstalledCopy Include="$(BepInExDir)\plugins\**\$(AssemblyName).dll" />
     </ItemGroup>
