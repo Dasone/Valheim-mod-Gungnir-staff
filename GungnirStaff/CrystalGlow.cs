@@ -83,11 +83,21 @@ namespace GungnirStaff
                 return null;
             }
 
-            // Spears are held right-handed; fall back to the left hand in case a
-            // projected staff ends up there.
-            return vis.m_rightItemInstance != null
-                ? vis.m_rightItemInstance
-                : vis.m_leftItemInstance;
+            // Whichever hand actually carries our mesh. A projected staff is
+            // two-handed-left, so the item changes hands and the old instance can linger.
+            var right = vis.m_rightItemInstance;
+            if (right != null && FindCrystal(right) != null)
+            {
+                return right;
+            }
+
+            var left = vis.m_leftItemInstance;
+            if (left != null && FindCrystal(left) != null)
+            {
+                return left;
+            }
+
+            return right ?? left;
         }
 
         private static void EnsureLight(GameObject attach)

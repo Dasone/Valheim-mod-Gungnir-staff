@@ -8,48 +8,55 @@ using UnityEngine;
 namespace GungnirStaff
 {
     /// <summary>
-    ///     Gungnir's crafting recipe and its three upgrades, made at the Galdr Table.
+    ///     Gungnir's crafting recipe and its two upgrades, made at the Galdr Table.
     ///
-    ///     Each upgrade level adds two slots to the staff rack, so the item's quality is
-    ///     what governs how many staffs it can carry.
+    ///     A new Gungnir starts with four rack slots and each upgrade adds two, so the
+    ///     item's quality is what governs how many staffs it can carry.
     /// </summary>
     internal static class GungnirRecipe
     {
         internal const string Station = "piece_magetable";
-        internal const int MaxQuality = 4;
+        // Three levels, not four, because the rack is what the levels buy and the rack
+        // is full at level 3: slots run 4/6/8 against a ModConfig.MaxSlots ceiling of 8,
+        // which is itself pinned by the Alt+1..Alt+8 shortcuts. A fourth level would cost
+        // real materials and grant nothing, so it does not exist.
+        internal const int MaxQuality = 3;
 
         /// <summary>Needs an upgraded Galdr Table, unlike the basic staffs.</summary>
         internal const int MinStationLevel = 2;
 
-        /// <summary>Two rack slots per upgrade level: 2, 4, 6, 8.</summary>
+        /// <summary>Rack slots a freshly crafted, un-upgraded Gungnir has.</summary>
+        internal const int BaseSlots = 4;
+
+        /// <summary>Extra rack slots each upgrade buys: 4, 6, 8.</summary>
         internal const int SlotsPerLevel = 2;
 
         /// <summary>
-        ///     Cost per level, indexed by quality - 1. Kept as literal tables because
-        ///     that is how they were specified, and because vanilla cannot express all of
-        ///     them: <c>Requirement.GetAmount</c> returns <c>m_amount</c> at level 1 and
-        ///     <c>(level - 1) * m_amountPerLevel</c> above it. Wood, eitr and the trophy
-        ///     happen to fit that curve; thunder stones (1, 2, 3, 4) do not - 1 per level
-        ///     gives 1,1,2,3 and 2 per level gives 1,2,4,6. The patch below serves these
-        ///     exact numbers instead of approximating them.
+        ///     Cost per level, indexed by quality - 1: craft, then the two upgrades.
+        ///     Kept as literal tables because that is how they were specified, and because
+        ///     vanilla cannot express all of them: <c>Requirement.GetAmount</c> returns
+        ///     <c>m_amount</c> at level 1 and <c>(level - 1) * m_amountPerLevel</c> above
+        ///     it. Wood, eitr and the trophy happen to fit that curve; thunder stones
+        ///     (3, 2, 4) do not. The patch below serves these exact numbers instead of
+        ///     approximating them.
         /// </summary>
         private static readonly Dictionary<string, int[]> Costs = new Dictionary<string, int[]>
         {
             // Mistlands staples, in quantities well above a normal staff.
-            { "YggdrasilWood", new[] { 30, 15, 25, 35 } },
-            { "Eitr", new[] { 30, 20, 30, 40 } },
+            { "YggdrasilWood", new[] { 30, 15, 25 } },
+            { "Eitr", new[] { 30, 20, 30 } },
 
             // Thunder stones carry the lightning: they are what the vanilla lightning
             // staff is built from, so they read as the Odin part of the recipe.
-            { "Thunderstone", new[] { 3, 2, 4, 6 } },
+            { "Thunderstone", new[] { 3, 2, 4 } },
 
             // Black cores gate it behind actually delving the Infested Mines rather than
             // gathering on the surface, which is what makes it harder than the staffs.
-            { "BlackCore", new[] { 2, 1, 2, 3 } },
+            { "BlackCore", new[] { 2, 1, 2 } },
 
             // A Gjall trophy, not the Queen's: a mid-Mistlands gate rather than a
             // "finished the biome" one.
-            { "TrophyGjall", new[] { 1, 0, 0, 0 } },
+            { "TrophyGjall", new[] { 1, 0, 0 } },
         };
 
         /// <summary>
@@ -221,7 +228,7 @@ namespace GungnirStaff
                 db.m_recipes.Add(recipe);
             }
 
-            GungnirStaffPlugin.Log.LogMessage(
+            ModConfig.Trace(
                 $"Gungnir recipe {(isNew ? "registered at" : "refreshed for")} the Galdr Table "
                 + $"({recipe.m_resources.Length} materials, station level {MinStationLevel}, "
                 + $"up to level {MaxQuality}).");
@@ -276,7 +283,23 @@ namespace GungnirStaff
         /// <summary>How many rack slots a Gungnir of this quality has.</summary>
         internal static int SlotsForQuality(int quality)
         {
-            return Mathf.Clamp(quality * SlotsPerLevel, SlotsPerLevel, ModConfig.MaxSlots);
+            var upgrades = Mathf.Max(0, quality - 1);
+            return Mathf.Clamp(
+                BaseSlots + (upgrades * SlotsPerLevel), BaseSlots, ModConfig.MaxSlots);
+        }
+
+        /// <summary>
+        ///     True when the next upgrade would actually widen the rack.
+        ///
+        ///     Not the same question as "is this below max quality": the rack is capped at
+        ///     <see cref="ModConfig.MaxSlots"/>, so the curve can reach its ceiling before
+        ///     the item runs out of levels. Asked before promising more slots, so the
+        ///     tooltip cannot advertise an upgrade that would add none.
+        /// </summary>
+        internal static bool MoreSlotsAvailable(int quality)
+        {
+            return quality < MaxQuality
+                   && SlotsForQuality(quality + 1) > SlotsForQuality(quality);
         }
     }
 }

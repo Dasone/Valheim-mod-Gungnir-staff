@@ -80,6 +80,10 @@ namespace GungnirStaff
         internal static void Invalidate()
         {
             _cache = null;
+
+            // The common stance is measured from this list, so it has to be re-measured
+            // whenever the list can change.
+            StaffStance.Reset();
         }
     }
 }
