@@ -119,7 +119,7 @@
   <!-- Normal install. Also clears any scripts/ copy: two copies of the same
        plugin GUID would collide and the second one silently refuses to load. -->
   <Target Name="DeployPlugin" AfterTargets="Build"
-          Condition="'$(Deploy)' != 'false' And '$(HotReload)' != 'true'">
+          Condition="'$(Deploy)' != 'false' And '$(HotReload)' != 'true' And '$(OverwriteInstalled)' != 'true'">
     <Delete Files="$(ScriptsDeployDir)\$(AssemblyName).dll;$(ScriptsDeployDir)\$(AssemblyName).pdb" ContinueOnError="true" />
     <MakeDir Directories="$(PluginDeployDir)" />
     <Copy SourceFiles="$(TargetPath);@(_DebugSymbolsIntermediatePath)"
@@ -129,12 +129,49 @@
 
   <!-- Hot-reload install. Also clears the plugins/ copy, for the same reason. -->
   <Target Name="DeployHotReload" AfterTargets="Build"
-          Condition="'$(Deploy)' != 'false' And '$(HotReload)' == 'true'">
+          Condition="'$(Deploy)' != 'false' And '$(HotReload)' == 'true' And '$(OverwriteInstalled)' != 'true'">
     <Delete Files="$(PluginDeployDir)\$(AssemblyName).dll;$(PluginDeployDir)\$(AssemblyName).pdb" ContinueOnError="true" />
     <MakeDir Directories="$(ScriptsDeployDir)" />
     <Copy SourceFiles="$(TargetPath);@(_DebugSymbolsIntermediatePath)"
           DestinationFolder="$(ScriptsDeployDir)" SkipUnchangedFiles="false" ContinueOnError="true" />
     <Message Importance="high" Text="-&gt; Hot-reloaded $(AssemblyName).dll into $(ScriptsDeployDir) (ScriptEngine picks it up in ~1.5s)" />
+  </Target>
+
+  <!-- ==================================================================
+       Overwrite an already-installed copy
+       dotnet build GungnirStaff/GungnirStaff.csproj -p:OverwriteInstalled=true
+
+       For testing a local build while the published mod is installed from
+       Thunderstore. Both copies declare the same BepInPlugin GUID, so having
+       them side by side is not "two versions to pick from" - it is a conflict,
+       and which one wins is not something to rely on.
+
+       This drops the freshly built DLL on top of every installed copy it finds
+       (r2modman installs under plugins/<Author>-<Mod>/, so the path is matched
+       rather than assumed) and clears the hot-reload copy, leaving exactly one.
+
+       r2modman is not upset by this - it only sees its own file - and
+       reinstalling or updating the mod from Thunderstore restores it.
+       ================================================================== -->
+  <Target Name="DeployOverInstalled" AfterTargets="Build"
+          Condition="'$(Deploy)' != 'false' And '$(OverwriteInstalled)' == 'true'">
+    <ItemGroup>
+      <_InstalledCopy Include="$(BepInExDir)\plugins\**\$(AssemblyName).dll" />
+    </ItemGroup>
+
+    <Warning Condition="'@(_InstalledCopy)' == ''"
+             Text="No installed copy of $(AssemblyName).dll found under $(BepInExDir)\plugins. Nothing was overwritten - install the mod first, or drop -p:OverwriteInstalled=true to use the normal deploy." />
+
+    <!-- Cleared first: a leftover scripts/ copy would load the same GUID a second
+         time and undo the point of this target. -->
+    <Delete Files="$(ScriptsDeployDir)\$(AssemblyName).dll;$(ScriptsDeployDir)\$(AssemblyName).pdb" ContinueOnError="true" />
+
+    <Copy SourceFiles="$(TargetPath)" DestinationFiles="@(_InstalledCopy)" ContinueOnError="true" />
+    <Copy SourceFiles="@(_DebugSymbolsIntermediatePath)"
+          DestinationFiles="@(_InstalledCopy->'%(RootDir)%(Directory)$(AssemblyName).pdb')"
+          ContinueOnError="true" />
+
+    <Message Importance="high" Text="-&gt; Overwrote %(_InstalledCopy.Identity) with the $(Configuration) build" />
   </Target>
 
   <!-- ==================================================================

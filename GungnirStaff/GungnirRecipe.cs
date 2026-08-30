@@ -53,10 +53,6 @@ namespace GungnirStaff
             // Black cores gate it behind actually delving the Infested Mines rather than
             // gathering on the surface, which is what makes it harder than the staffs.
             { "BlackCore", new[] { 2, 1, 2 } },
-
-            // A Gjall trophy, not the Queen's: a mid-Mistlands gate rather than a
-            // "finished the biome" one.
-            { "TrophyGjall", new[] { 1, 0, 0 } },
         };
 
         /// <summary>
@@ -72,7 +68,6 @@ namespace GungnirStaff
                 { "BlackCore", new[] { "BlackCore", "Blackcore" } },
                 { "Eitr", new[] { "Eitr", "RefinedEitr" } },
                 { "YggdrasilWood", new[] { "YggdrasilWood", "Yggdrasilwood" } },
-                { "TrophyGjall", new[] { "TrophyGjall" } },
             };
 
         /// <summary>The real prefab name for a material, or null if none of them exist.</summary>
