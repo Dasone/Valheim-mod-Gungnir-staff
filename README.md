@@ -42,6 +42,7 @@ GungnirStaff/
   Commands.cs                  # `gungnir` dev console command
   Blueprint.cs                 # one-shot dump of a vanilla prefab's components
   GungnirItem.cs               # the item prefab, cloned from a vanilla spear
+  GungnirStandalone.cs         # the same prefab built from nothing, no clone
   GungnirRecipe.cs             # recipe + three upgrade levels
   GungnirVisual.cs             # swaps the custom model in from the AssetBundle
   StaffRegistry.cs             # what counts as a staff
@@ -125,7 +126,7 @@ live-editable in Configuration Manager (F1) under **Gungnir Staff**.
 | --- | --- |
 | `General` | `Enabled` master switch, `VerboseLogging` |
 | `Staff bar` | `SlotCount` (0 = follow upgrade level), `Activation` (Equipped / Carried), `Visibility` (WhenGungnirActive / InventoryOnly / Always), `PositionX`, `PositionY`, `Scale` |
-| `Appearance` | `BaseWeaponPrefab`, model offset / scale / grip height, spear and staff stance rotations, back-slot placement, crystal particle mode / rate / scale / brightness, weapon glow effect |
+| `Appearance` | `StandalonePrefab`, `BaseWeaponPrefab`, model offset / scale / grip height, spear and staff stance rotations, back-slot placement, crystal particle mode / rate / scale / brightness, weapon glow effect |
 | Crystal colours | One colour per staff, bound lazily from ObjectDB |
 | `Keys` | `StatusKey`, `HolsterStaff`, `SelectSlot1`…`SelectSlot8` |
 
@@ -137,6 +138,17 @@ round-trips cleanly through the config file.
 
 `BaseWeaponPrefab` takes effect on the next game start: the held model comes from the
 prefab, which is registered once at load.
+
+### Two ways to build the prefab
+
+By default Gungnir is a runtime clone of a vanilla spear, which hands you working
+attacks, animations, colliders and a hundred-odd `SharedData` fields for free.
+`StandalonePrefab = true` switches to `GungnirStandalone.cs`, which authors all of
+that explicitly instead — from values measured off a real spear rather than guessed
+at — so the item depends on no vanilla weapon at all. The attack animations are not a
+dependency either way: `spear_poke` is a state in the player's own animator, so
+naming it costs nothing. If the standalone build does not complete, the mod falls back
+to the clone and says so in the log.
 
 ---
 
